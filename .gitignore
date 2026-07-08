@@ -34,3 +34,6 @@ logs/
 
 # Large data files
 data/drug-DDI.csv
+
+# Claude Code
+.claude/

@@ -1,0 +1,2715 @@
+T-PHENOTYPE: DISCOVERING PHENOTYPES OF PREDICTIVE TEMPORAL PATTERNS IN DISEASE PROGRESSION
+
+arXiv:2302.12619v1 [cs.LG] 24 Feb 2023
+
+Yuchao Qin University of Cambridge, UK
+
+Mihaela van der Schaar University of Cambridge, UK The Alan Turing Institute, UK
+
+Changhee Lee Chung-Ang University, South Korea
+
+ABSTRACT
+Clustering time-series data in healthcare is crucial for clinical phenotyping to understand patients' disease progression patterns and to design treatment guidelines tailored to homogeneous patient subgroups. While rich temporal dynamics enable the discovery of potential clusters beyond static correlations, two major challenges remain outstanding: i) discovery of predictive patterns from many potential temporal correlations in the multi-variate time-series data and ii) association of individual temporal patterns to the target label distribution that best characterizes the underlying clinical progression. To address such challenges, we develop a novel temporal clustering method, T-Phenotype, to discover phenotypes of predictive temporal patterns from labeled time-series data. We introduce an efficient representation learning approach in frequency domain that can encode variable-length, irregularlysampled time-series into a unified representation space, which is then applied to identify various temporal patterns that potentially contribute to the target label using a new notion of path-based similarity. Throughout the experiments on synthetic and real-world datasets, we show that T-Phenotype achieves the best phenotype discovery performance over all the evaluated baselines. We further demonstrate the utility of T-Phenotype by uncovering clinically meaningful patient subgroups characterized by unique temporal patterns.
+
+1 INTRODUCTION
+Discovering predictive patterns of disease progression has been a long pursuit in healthcare. Clinicians have considered specific clinical (disease) status and the associated patterns as a phenotype to uncover the heterogeneity of diseases and to design therapeutic guidelines tailored to homogeneous subgroups (Hripcsak and Albers, 2013; Richesson et al., 2016). While rule-based phenotypes identified by domain experts have been widely used (Denny et al., 2013; Richesson et al., 2016), designing and validating such rules require tremendous effort. Unfortunately, disease progression can manifest through a broad spectrum of clinical factors, collected as a sequence of measurements in electronic health records (EHRs), that may vary greatly across individual patients. This makes it even more daunting for domain experts to transform such raw and complex clinical observations into clinically relevant and interpretable patterns.
+Temporal clustering has been recently used as a datadriven framework for phenotyping to partition patients with sequences of observations into homogeneous subgroups. To discover different temporal patterns, traditional notions of similarity focus on either adjusting similarity measures (Zhang et al., 2019; Baytas et al., 2017) or finding low-dimensional representations (Ho et al., 2014; Giannoula et al., 2018) for longitudinal observations. These approaches are purely unsupervised and discard valuable information about the disease status that is often available in the clinical data. More recently, predictive clustering methods (Lee and van der Schaar, 2020; Lee et al., 2020; 2022; Aguiar et al., 2022) have introduced a new notion of similarity such that each cluster shares similar disease status to provide a better prognostic value. Despite the effort to understand temporal dynamics in their mutual context, these clustering methods fail to capture the full picture of disease progression as reflected by covariate trajectories of prognostic characteristics, i.e., temporal patterns associated with specific disease status. Figure 1 illustrates a pictorial depiction of the notion of phenotypes behind different temporal clustering methods.
+
+T-Phenotype
+
+Trajectory-oriented phenotypes
+
+Past observed patient
+
+Phenotype 1
+A Similar trajectories Phenotype 2
+
+Comprehensive phenotypes
+Phenotype 1
+
+Past observed patient
+
+Outcome-oriented
+
+phenotypes
+
+B
+
+Similar outcomes
+
+Phenotype 1
+
+Phenotype 2
+Phenotype 3 Similar outcomes
+
+Past observed patient
+
+Past observed patient
+
+Phenotype 2
+
+Similar temporal
+
+patterns
+
+C
+
+(predictive)
+
+Past observed patient
+
+New arrival patients
+
+Figure 1: Different Notions of Temporal Phenotypes. Purely unsupervised clustering approaches focus on trajectory-oriented phenotypes (blue) and disregard the valuable information in patient outcomes. Predictive clustering methods aim at discovering outcome-oriented phenotypes (purple) which may not reflect the heterogeneity in patient trajectories despite the same diagnosis outcome. A desirable phenotyping method shall address both types of similarity and discover comprehensive phenotypes (red).
+
+Contribution. In this paper, we propose a novel temporal clustering method to correctly uncover predictive temporal patterns descriptive of the underlying disease progression from the labeled time-series data. First, we formally define the notion of temporal phenotypes as predictive temporal patterns. Then, the association of individual temporal patterns with the target disease status is assessed by proposing a novel path-based similarity score. For effective evaluation of the path-based similarity, we introduce a representation learning approach based on the Laplace transform to convert variable-length, irregularly sampled time-series data into unified embeddings. Finally,
+
+dimx-dimensional time-varying covariates, i.e., x(t) =
+[x1(t), . . . , xdimx (t)] , each of which can be described by a continuous-time function xi in L2[0,1] (i.e., L2-space under the interval [0, 1]).2 Thus, the considered trajectory space can be given as X = dimx L2[0,1]. Each trajectory x is correlated with a target label vector y =
+[y1, . . . , ydimy ]  Y that describes the clinical status of the underlying disease progression (e.g., clinical end-
+points). Throughout the paper, we focus our description
+on the case where the outcome of interest y is categorical and represented by a one-hot vector, i.e., Y = {0, 1}dimy .
+
+based on the resulting path-based similarity graph, we for- Let p(x, y) be the joint distribution of the continuous-
+
+mulate the task of temporal phenotyping as a temporal time trajectory and the label vector. To discover temporal
+
+predictive clustering problem that can be efficiently solved patterns that are predictive of the clinical status of pa-
+
+by adopting the graph-constrained K-means clustering. tients, we first define a vector-valued function g(x) =
+
+We validate our approach through experiments on synthetic and real-world time-series datasets. Our method discovers temporal phenotypes that provide superior prediction performance compared to state-of-the-art benchmarks, and we corroborate the interpretability of our discovered phenotypes with supporting medical and scientific literature.
+2 TEMPORAL PHENOTYPING
+Suppose disease progression manifests through a multi-
+
+[p(y1|x), . . . , p(ydimy |x)] which implies the categorical conditional distribution p(y|x). We assume the clinical sta-
+
+tus conditioned on a patient trajectory can be represented
+
+by one of the -separable modes in g(x). These modes
+
+are -separable such that they can be separated based on
+
+a proper distance metric dy with some threshold  > 0.
+
+Here, we choose the Jensen­Shannon (JS) divergence as
+
+our distance metric,
+
+i.e.,
+
+dy(v, u)
+
+=
+
+1 2
+
+K L(g (v )||m)
+
++
+
+1 2
+
+K
+
+L(g(u)||m),
+
+where
+
+K
+
+L
+
+is
+
+the
+
+Kullback-Leibler
+
+diver-
+
+gence,
+
+m
+
+=
+
+g(v)+g(u) 2
+
+.
+
+variate continuous-time trajectory x(t)  X defined on
+
+t  [0, 1], where X is the functional space of all possible patient trajectories.1 Each trajectory consists of
+1Trajectories defined within the interval R+ can be simply scaled to the unit interval [0, 1].
+
+2In many practical scenarios, the continuous-time functions for time-varying covariates are bounded and fall into the L2-space
+which has a natural extension of Euclidean distance.
+
+2
+
+T-Phenotype
+
+2.1 Phenotypes: Predictive Temporal Patterns
+
+tories, that satisfies the following two properties:
+
+In this subsection, we introduce the formal definition of phenotypes as temporal patterns that are predictive of disease progression. To this goal, we start by describing how the temporal patterns in continuous-time trajectories can be discovered and how the specific disease progression can be associated with each individual pattern.
+
+(Similar clinical status)
+
+
+
+max
+x
+
+dy(g(x), v)
+
+
+
+, 2
+
+(Similar predictive pattern) max d(x1, x2)  ,
+x1 ,x2  
+
+and any trajectory x  X \  is either not connected to  or has a different mode.
+
+Temporal Patterns. A temporal pattern characterizes some temporal dynamics that are shared by a subset of
+
+Intuitively, the homogeneity of each phenotype (v, )
+
+trajectories in X . Here, we introduce a novel definition to describe temporal patterns in the general form based on
+
+guarantees that the continuous-time trajectories exhibiting a similar temporal pattern will lead to a similar clinical
+
+connectivity in trajectory space X . Given two trajectories status, which in turn provides a prognostic value on the
+
+x1, x2  X , we define a translation from x1 to x2, de- underlying disease progression.
+
+noted as (x1  x2), as a continuous path  connecting the two trajectories in space X . Typically, (x1  x2) 2.2 Predictive Temporal Clustering
+
+can continuously morph the shape of x1 into that of x2.
+
+Then, we formally define a temporal pattern as a connected In practice, the continuous-time trajectories of a patient are set   X such that all the trajectories in  can be inter- systematically collected in EHRs as discrete observations
+
+connected by translations within . That is, there exists with irregular intervals during his/her regular follow-ups
+
+a series of translations from any trajectory to any other or stay at hospital. Hence, we focus this subsection on for-
+
+trajectory in .
+
+mulating the task of discovering phenotypes given discrete
+
+observations of trajectories as a novel clustering problem.
+
+Phenotypes. Considering multivariate continuous-time trajectories, a variety of temporal patterns may exist in X
+
+Suppose we have a dataset D
+
+=
+
+{(ti, Xi, yi)}iN=1
+
+while only a few of them are relevant to the target label. comprising discrete observations on the underlying
+
+In the meantime, the clinical status marked by the same target label may manifest in patient trajectories through different temporal characteristics. For instance, in lung transplant referral of cystic fibrosis patients, (i) low lung function score, (ii) rapid declining lung function score, and (iii) multiple exacerbations requiring intravenous antibiotics are identified as distinct predictive temporal patterns
+
+continuous-time trajectories and target labels. Here, we denote discrete observations as time-series X = [x(t1), x(t2), . . . , x(tT )] which contains sequential observations of a trajectory x at observation time stamps t = [t1, t2, . . . , tT ] with 0  t1  . . .  tT  1. The label vector y  Y describes the clinical status sampled from the conditional distribution p(y|x). From this
+
+(Ramos et al., 2019) among various temporal dynamics.
+
+point forward, we will slightly abuse the notation and interchangeably write X to denote the discrete time-series
+
+To provide insights on disease progression, desirable phe- and the associated time stamps.
+
+notypes shall be defined based on distinct predictive temporal patterns. In line with such notion of phenotypes, we
+
+Path-Based Connectivity.
+
+Note that the property of a
+
+propose a new path-based similarity score that measures phenotype in Definition 1 requires all trajectories in that
+
+the variation of conditional label distribution (described
+by function g(x)) along a translation between two trajec-
+tories. Specifically, consider two continuous-time trajectories x1, x2 and a translation (x1  x2), the score function evaluates the similarity between x1 and x2 via
+
+phenotype share a similar predictive pattern. Consider two time-series X1, X2 with underlying continuous-time trajectories x1, x2 from the same phenotype (v, ). There must exist a translation  from trajectory x1 to x2 such that the condition in d(x1, x2)   holds. Violating such
+
+their impact on label y through path  as follows:
+
+a condition implies a significant difference between the
+
+two trajectories suggesting they are from different pheno-
+
+d(x1, x2) = max dy(g(x), g(xi)).
+x(x1 x2 ) i{1,2}
+
+(1) types. Therefore, we utilize the path-based connectivity test, i.e.,  (x1  x2), d(x1, x2)  , to assesses the phenotype similarity between two given trajectories X1
+
+Small value of d(x1, x2) indicates that trajectories x1 and x2 share similar clinical status y and contain similar temporal patterns that are predictive of their associated label.
+
+and X2. This enables discovery of predictive temporal patterns without access to the ground-truth phenotypes. Evaluation of the path-based connectivity on all possible pairs of time-series in dataset D generates a distance matrix S. Element-wise comparison of S and threshold  yields
+
+Finally, we provide a formal definition of phenotype as a similarity graph G with edges between similar samples.
+
+a predictive temporal pattern associated with a distinct We will discuss how we can approximately achieve the
+
+clinical status as follows:
+
+path-based connectivity test based on the discrete observa-
+
+Definition 1. (Phenotype) Let v be the centroid of a - tions in the next section.
+
+separable mode in g(x). Then, there exists a unique phe- Temporal Phenotyping. To discover phenotypes from notype, denoted as a tuple (v, ) with  as a set of trajec- dataset D, we assume that we have a proper approxima-
+
+3
+
+T-Phenotype
+
+1 2
+
+
+
+dim
+
+1 2 
+
+
+
+Time-series  = ()
+
+1
+
+ ()
+
+
+
+
+
+-th Laplace encoder
+
+dim
+Encoder network 
+
+
+Predictor network  
+
+(|) Label distribution
+
+Phenotype (, )
+Patient trajectory 
+
+ (  )
+ 
+
+Equivalence via 
+
+
+ (  ) 
+
+d ,   d(, )
+Path-based test in latent space
+
+Trajectory space 
+
+Latent space 
+
+Figure 2: Overview of T-Phenotype.
+
+ 
+-means on similarity graph 
+
+tor f (X) of the conditional label distribution g(x) from 3 METHOD: T-PHENOTYPE
+
+discrete observations in X. Thus, similarity graph G can
+
+be constructed based on the path-based connectivity test In this section, we propose a novel temporal clustering
+
+with approximator f (X). Now, we formulate the task of framework, T-Phenotype, that effectively discovers phe-
+
+temporal phenotyping as a predictive clustering problem notypes from discrete time-series data. To estimate the
+
+(Lee and van der Schaar, 2020) to group time-series into conditional label distribution from discrete time-series,
+
+different clusters on top of G. More specifically, the clus- we introduce two networks, an encoder and a predictor.
+
+ters (with distinct phenotypes) are discovered by solving the following constrained optimization problem:
+
+The encoder, fE, comprises dimx feature-wise Laplace encoders, each of which transforms a single feature dimen-
+
+sion of discrete time-series X into a fixed-length latent
+
+min
+
+dy(f (X), vk),
+
+C
+
+CkC XCk
+
+s.t. X1, X2  Ck, X1 G X2,
+
+embedding. The predictor, fP , takes embeddings from dimx Laplace encoders as the input z in the latent space (2) and estimates the conditional label distribution. The proposed Laplace encoders, fL, allow us to establish (approximately) equivalence translation in the latent space and
+
+thereby to efficiently evaluate the path-based connectivity
+
+test between discrete time-series in dataset D. Then, given
+
+where C = {C1, C2, . . . , CK } is a feasible set of K  an approximate similarity graph G constructed from the N clusters each of which has a centroid vk as the av- result of pair-wise connectivity test, we propose a grapherage density f (X), Since threshold  is usually un- constrained K-means algorithm to discover distinct phenoknown in advance, we set its value according to  = types. The overview of steps involved in T-Phenotype is
+
+2 maxCkC,XCk dy(f (X), vk) for consistency with Def- illustrated in Figure 2.
+inition 1. Here, X1 G X2 implies that there exists a path over graph G such that X1 and X2 are intercon- 3.1 Time-Series Embedding via Laplace Encoder
+
+nected. In (2), the objective function encourages the cluster
+
+centroids to be clearly distinguished in approximated la- Now, we introduce a novel time-series encoder which en-
+
+bel distribution f (X) while the constraint on similarity codes each dimension of a given discrete time-series into a
+
+graph G ensures that samples in the same cluster are of unified parametric function in the frequency domain as an
+
+similar phenotypes. Each discovered cluster Ck represents approximation of the Laplace transform.
+
+a unique phenotype with centroid vk describing the associated clinical status and allows us to explain the predictive temporal pattern in terms of the collection of time-series
+
+Laplace Encoder. Let x(t) = [x(t1), . . . , x(tT )]  RT be a time-series of discrete observations on a univariate
+
+in Ck.
+
+trajectory x(t) at time stamps t = [t1, . . . , tT ] in the unit interval. The Laplace encoder (parameterized by L),
+
+Unfortunately, the optimization problem in (2) is highly fL : RT  Cn(d+1), encodes discrete time-series x(t) non-trivial due to the following two challenges: First, it into a rational function on the complex plane with n  N
+
+requires to learn a proper approximation of the conditional poles of maximum degree of d  N as follows:
+
+label distribution from irregularly-sampled discrete time-
+
+series. Second, an efficient evaluation of the path-based connectivity test is required to construct similarity graph G given discrete time-series in D.
+
+Fw (s)
+
+=
+
+n m=1
+
+d l=1
+
+(s
+
+cm,l - pm)l
+
+,
+
+cm,l, pm  C.
+
+(3)
+
+4
+
+T-Phenotype
+
+Here, w fL(x(t)) = [p1, . . . , pn, c1,1, . . . , cn,d] is z in the latent space leads to the continuity of  in the
+
+the Laplace embedding comprising the poles and the cor- trajectory space. This property allows efficient evaluation
+
+responding coefficients. Note that the poles in (3) are of the path-based connectivity test in the latent space as
+
+distinct and are in a lexical order, i.e., pm  pm+1 for illustrated in the following subsection. m = 1, . . . , n-1 where pm  pn if and only if Re(pm) < Re(pn) or Re(pm) = Re(pn)  Im(pm)  Im(pn) holds. 3.2 Efficient Evaluation of Path-based Similarity Then, the time-domain function can be efficiently recon-
+
+structed via the inverse Laplace transform:
+
+Construction of similarity graph G involves iterative eval-
+
+1
+
+x^(t) =
+
+lim
+
+2j T 
+
++jT
+est Fw (s)ds,
+-jT
+
+uation of the path-based similarity score d in (1) for all (4) possible pairs of time-series samples in D. This requires
+a substantial number of computations in both construct-
+
+ing translation  and calculating conditional g(x) on all where j2 = -1 and  is some suitable complex number available continuous-time trajectories x  . Instead, we
+
+such that Re() > maxpmw Re(pm). With a sufficient efficiently approximate the similarity graph G via pathnumber of poles, the Laplace embedding w becomes an based connectivity test in the latent space and estimate the
+
+equivalent description of the underlying trajectory x(t). conditional g(x) via neural networks.
+
+That is, the orthonormal basis {e2jmt, m  Z} of L2[0,1] is covered by the reconstruction x^(t) when n  .
+
+Translation in Latent Space. Consider two trajectories x^1, x^2  X with the corresponding latent embedding
+
+Given a dataset of N discrete univariate time-series, i.e., z1, z2  Z. For any translation (x^1  x^2)  X in
+
+{xi(t)}iN=1, we train the Laplace encoder utilizing the following loss function that consists of the time-series re-
+
+trajectory space, we can always find a continuous path in the latent space, i.e., (z1  z2)  Z, such that the
+
+construction error and the regularization term specifically distance between its time-domain reconstruction and  is
+
+designed to encourage unique Laplace embeddings:
+
+minimized. We consider  to be an (approximately) equiv-
+
+alent translation of .3 This enables us to capitalize on the
+
+Llaplace(L) = Lmse(L) + Lunique(L) (5) translation in the latent space without constructing interme-
+
+where  is a balancing coefficient. The former diate trajectories along path , which significantly reduces
+
+term, i.e., Lmse(L)
+
+=
+
+1 N
+
+N i=1
+
+xi(t) - x^i(t) 22,
+
+computations in obtaining the path-based similarity in (1).
+
+is the reconstruction error from our Laplace em- Predictor. To estimate the function g(x), we utilize the
+
+beddings, and the latter term, i.e., Lunique(L) =
+
+1 N (N -1)
+
+i=j unique(x^i(t), x^j (t)),
+
+encourages the
+
+uniqueness of the Laplace embedding. More specifically,
+
+unique focuses on three aspects ­ (i) the obtained poles are
+
+distinct, (ii) the reconstructed trajectories are real-valued,
+
+and (iii) no two distinct Laplace embeddings generate
+
+time-series encoder fE, which consists of dimx Laplace encoders, and a predictor fP (an MLP parameterized
+by P ) to construct the approximator as f (X) fP  fE(X)  g(x) where X is the discrete observation of trajectory x. The predictor fP is trained based on the cross-entropy loss:
+
+the same trajectory. We further elaborate the uniqueness regularization in the Appendix.
+From Trajectory Space to Latent Space. Utiliz-
+
+1
+
+Lpredictor(P
+
+)
+
+=
+
+- N
+
+N
+
+dimy
+yci log fP (zi)c,
+
+(6)
+
+i=1 c=1
+
+ing dimx feature-wise Laplace encoders as our encoder, fE, any discrete observations of a continuoustime trajectory x  X can be transformed into a fixed-
+
+where z = fE(X) and subscript c indicates the c-th element in the output space. To maintain the property of
+
+length embedding z  Z in the latent space as a the Laplace encoders, we only update the predictor via the
+
+composition of dimx Laplace embeddings, i.e., z
+
+signal from the label during training.
+
+[fL(x1(t)), . . . , fL(xdimx (t))] . The following propo- Consider a trajectory translation (x^1  x^2) and its
+
+sition builds a strong connection between the trajectory equivalent translation (z1  z2) in latent space, the
+
+space X and the latent space Z:
+
+path-based similarity can be approximately calculated as
+
+Proposition 1. Without loss of generality, consider univariate continuous-time trajectories x^1, x^2  X and their
+
+d(x^1, x^2)  d (z1, z2) = max dy(fP (z), fP (zi)).
+z,i=1,2
+
+corresponding latent embeddings z1, z2  Z, respec-
+
+(7)
+
+tively. Then, the distance between two trajectories can Hence, given two discrete time-series X1 and X2, the
+
+be bounded by
+
+x^1 - x^2
+
+2 L2[0,1]
+
+
+
+
+
+z1 - z2
+
+22, where
+
+path-based connectivity test can be efficiently performed along translation  in the latent space without assessing
+
+ > 0 is a constant and
+
+x(t)
+
+= 2
+L[20,1]
+
+1 0
+
+x(t)x(t)dt.
+
+the corresponding translation in the trajectory space X .
+
+Approximate Similarity Graph. Consider a phenotype
+
+The detailed proof can be found in the Appendix. Con- (v, ) where centroid v represents a specific clinical status sider a subset of latent variables z and the corresponding
+
+trajectory set  of their time-domain representations. The 3The equivalence is strict when all trajectories along transla-
+
+upper bound in Proposition 1 implies that continuity of tion  have rational Laplace transform as described in (3).
+
+5
+
+T-Phenotype
+
+and  is the associated predictive temporal pattern. The our predictive clustering method, T-Phenotype, is given in
+
+encoder fE is trained to map time-series X sampled from Algorithm 1. More details about the algorithm are provided trajectories in  into a connected area z in latent space in the Appendix. Z via Laplace encoders. Given time-series X that is ob-
+
+served from trajectory x  , Definition 1 implies that we
+
+have
+
+dy(f (X), v)
+
+
+
+ 2
+
+where f (X)
+
+=
+
+fP (z) and
+
+z
+
+=
+
+fE(X)  z. Hence, for two embeddings z1, z2  z,
+
+there always exist a translation (z1  z2)  z such
+
+that d(z1, z2)   due to the connectivity of z in the
+
+latent space. If two latent embeddings z1, z2 are located in
+
+the same convex subset of z, linear path ¯(z1  z2) = {z|(1 - a)z1 + az2, a  [0, 1]} suffices the connectivity
+
+test. When z1 and z2 are in different convex subsets, the
+
+connectivity of z guarantees that there exists a series of intermediate points zm1 , zm2 , . . . , zml such that composite
+
+path (z1  z2) = ¯(z1  zm1 ). . .¯(zml  z2) is
+
+inside z and can be used for connectivity test. Therefore,
+
+in this work, we simplify the path-based connectivity test
+
+Algorithm 1 T-Phenotype
+
+Input: dataset D, number of clusters K
+
+Output: C = {C1, C2, . . . , CK }
+
+calculate distance matrix S based on (7)
+
+C  arg minC J¯(S)
+
+warm-start
+
+  log(2)
+
+upper bound of dJS
+
+while not converged do
+
+for k = 1, 2, . . . , K do
+
+update cluster seed ek via (9)
+
+end for
+
+  2 maxCkC,XCk dy(f (X), vk)
+
+  min(,  )
+
+upper bound J  N 
+
+create similarity graph G from Si,j  
+
+C  GK-means(J|e1, e2, . . . , eK , G)
+
+end while
+
+to the linear paths between latent variables as the similarity
+
+between two time-series can be inferred based on these linear paths. Overall, given two time-series Xi and Xj, we calculate the approximate distance d¯(fE(Xi), fE(Xj))
+via discrete points along path ¯, which is stored in element
+
+The cluster seeds in Algorithm 1 are used to perform
+greedy cluster expansion over similarity graph G. For the k-th cluster, the cluster seed ek = (vk, X(k)) can be given as
+
+Sij of path-based distance matrix S. The approximate
+
+similarity graph G is then constructed with edges between samples Xi and Xj if and only if Si,j  .
+
+1
+
+vk
+
+=
+
+f (X), |Ck| XCk
+
+X(k) = arg min dy(f (X), vk),
+X Ck
+
+(9)
+
+3.3 Predictive Clustering on Similarity Graph
+
+where vk is the cluster centroid and X(k) is the represen-
+
+Unfortunately, solving the clustering objective in (2) is
+
+tative time-series in cluster Ck with closest conditional to that of the centroid.
+
+a NP-hard combinatorial problem. Thus, we introduce a
+
+greedy approach to discover the temporal clusters from
+the path-based distance matrix S defined in the previous 4 RELATED WORK
+
+subsection.
+
+The objective function in (2) has the following upper bound:
+
+J
+
+dy(f (X), vk),
+
+Different strands of clustering methods have been increasingly investigated for knowledge discovery from timeseries data with various similarity notions accustomed to specific application scenarios. One strand is unsupervised
+
+CkC XCk
+
+
+
+Ck C
+
+1 |Ck |
+
+Xi,Xj Ck
+
+dy(f (Xi),
+
+f (Xj)),
+
+(8)
+
+
+
+d¯(zi, zj ),
+
+CkC Xi,Xj Ck
+
+=
+
+Sij J¯(S),
+
+CkC Xi,Xj Ck
+
+where zi = fE(Xi), latent translation ¯ is a linear path connecting two embeddings zi and zj. The first inequality
+
+comes from the convexity of the JS divergence, and the
+
+second inequality establishes from equation (7) and the fact that |Ck|  1. Local minimum of the upper bound J¯(S) can be achieved via a greedy K-partitioning algorithm based on pair-wise sample distances in matrix S.
+
+clustering methods that adopt the traditional notion of similarity into the time-series setting. To flexibly incorporate with variable-length irregularly-sampled time-series observations, the traditional methods applied K-means clustering by either finding fixed-length and low-dimensional representations using deep learning-based sequence-tosequence model (Ma et al., 2019; Zhang et al., 2019) or on modifying the similarity measure such as dynamic time warping (DTW) (Giannoula et al., 2018) and the associated graph Laplacian (Lei et al., 2019; Hayashi et al., 2005). Alternatively, Bahadori et al. (2015) focused on sample affinities to conduct spectral clustering, and Chen et al. (2022) proposed a deep generative model whose parametric space is then used for clustering. Further, advanced hidden Markov models (Ceritli et al., 2022) and Gaussian processes (Schulam et al., 2015) have also been utilized together with hierarchical graph models in disease sub-
+
+Utilizing the approximate solution in (8) as warm-start, we type discovery. In general, these methods are limited by
+
+propose a graph-constrained K-means clustering approach some model specifications such as the linear subspace as-
+
+to solve problem (2) via a greedy breadth-first search algo- sumptions and graphical models for the underlying data
+
+rithm GK-means (details in Appendix). The overview of generation process.
+
+6
+
+T-Phenotype
+
+Table 1: Comparison of Temporal Clustering Methods. The difference in the notion of phenotypes and similarity measure are highlighted together with two desiderata: (i) clusters are outcomes associated; and (ii) with interpretable insights on cluster assignment.
+
+METHOD
+
+PHENOTYPE
+
+SIMILARITY MEASURE (I) (II)
+
+Deep temporal K-means Bahadori et al. (2015) Chen et al. (2022) Aguiar et al. (2022) Lee and van der Schaar (2020) T-Phenotype (Ours)
+
+Distance-based Affinity-based Pattern-oriented Attention&outcome-oriented Outcome-oriented Predictive pattern-oriented
+
+Euclidean distance Self-expression Latent distance KL-divergence KL-divergence Path-based connectivity
+
+     
+
+Clusters identified through these methods are purely unsu- to that of x1. The trajectory x = [x1, x2] is irregularly
+pervised ­ they do not account for patients' clinical out- observed over 20 time stamps in t  [0, 2] with a white comes that are often available in EHRs ­ which may lead noise N (0, 0.12) for each variable. We set c as the ground
+
+to heterogeneous outcomes even for patients in the same truth phenotype label representing different periodicity and
+
+cluster. To overcome this issue, another strand of cluster- set the target outcome label y as y = 0 when c = 6 and
+
+ing methods combine predictions on the future outcomes y = 1 otherwise.
+
+with clustering. Lee and van der Schaar (2020) proposed an actor-critic approach to divide time-series of patient trajectories into subgroups based on their associated clinical status. The discovered patient subgroups allow clinicians to investigate the temporal patterns related to the transition of disease stages. Aguiar et al. (2022) extended it to capture phenotype-related feature contributions by employing an attention mechanism. Given predicted clusters, visualizing the associated attention map provides additional interpretability about the underlying disease progression.
+
+ADNI Dataset. The Alzheimer's Disease Neuroimaging Initiative4 (ADNI) dataset includes records on the progression of Alzheimer's disease (AD) of N = 1346 patients with regular follow-ups every six months. Each patient is associated with various biomarkers, evaluation of MRI and PET images, and cognitive tests results. We set the target outcome at each time stamp as the three diagnostic groups ­ i.e., normal brain functioning (NL), mild cognitive impairment (MCI), and AD ­ which is used to indicate different stages of AD progression. We focus on three
+
+Unfortunately, actionable information that can be inferred important temporal variables ­ i.e., the genetic biomarker
+
+from the aforementioned temporal predictive clusters is of apolipoprotein (APOE) 4 gene, the hippocampus eval-
+
+still limited. These methods primarily focus on finding the uation from MRI, and the cognitive test result of CDRSB ­
+
+discrete representations that can best describe the outcome to predict the AD progression.
+
+labels rather without properly associating with temporal patterns that can be found among time-series samples. In this paper, we propose a novel temporal clustering method to correctly uncover predictive temporal patterns descriptive of the underlying disease progression from the labeled time-series data. Therefore, our method not only can provide clusters that have a prognostic value but also can offer interpretable information about the disease progression patterns.
+
+ICU Dataset. The PhysioNet ICU5 (Goldberger et al., 2000) dataset contains temporal observations on 42 covariates of adult patients over the first 48 hours of ICU stay. We extract N = 1554 records of adult patients admitted to the medical or surgical ICU. Temporal covariates used in the experiments are age, gender, Glasgow Coma Scale (GCS), and partial pressure of arterial CO2 (PaCO2) with a time resolution of 1 hour, and we set patient mortality as the target binary outcome of interest.
+
+5 EXPERIMENTS
+
+Baselines. We compare the performance of T-Phenotype with the following benchmarks ranging from traditional
+
+In this section, we evaluate the clustering performance and the prognostic value of T-Phenotype with one synthetic dataset and two real-world datasets (detailed statistics are provided in the Appendix).
+
+method to recently developed deep learning-based methods, where each clustering method reflects a different notion of temporal phenotypes: 1) K-means with warpingbased distance (KM-DTW); 2) deep temporal K-means with the encoder-predictor (E2P) structure introduced in
+
+Synthetic Dataset. We construct a synthetic dataset (Lee and van der Schaar, 2020), i.e., KM-E2P(z) and KMof N = 1200 samples with ground truth cluster la- E2P(y); 3) K-means on top of our proposed Laplace enbels. Each sample comprises discrete observations of a coder (KM-L); 4) sequence-to-sequence with K-means 2-dimensional trajectory x(t) and the target binary out- friendly representation space (SEQ2SEQ); and 5) the statecome. We design the two elements x1(t) and x2(t) to of-the-art temporal clustering approach AC-TPC (Lee and model trend and periodicity of a trajectory, respectively: van der Schaar, 2020). Detailed description can be found
+
+we set x1(t) =  · sigmoid(a · (t - b - )) with sign
+
+
+
+
+
+{-1,
+
+1},
+
+a
+
+=
+
+10,
+
+b
+
+=
+
+0.5,
+
+and
+
+
+
+
+
+exp(
+
+3 10
+
+)
+
+and
+
+set
+
+x2(t) = sin(c · (t - )) with c  {4, 6, 8} and  identical
+
+4 https://adni.loni.usc.edu 5 https://physionet.org/content/challenge- 2012/
+
+7
+
+T-Phenotype
+
+in Appendix. In addition, we consider the ablation study Table 2 and Table 3, respectively. Complete benchmark
+
+of T-Phenotype with joint optimization for the Laplace tables are available in the Appendix. On the synthetic
+
+encoders and predictor fP and denote such model with dataset, T-Phenotype outperforms all baselines with
+
+T-Phenotype (J).
+
+significant gaps in considered clustering accuracy metrics.
+
+Throughout the experiments, time stamps of discrete time-series are scaled into t  [0, 1]. For the synthetic and ADNI datasets, we use 64/16/20 train/validation/test splits in experiments. To get reliable clustering performance measurement on the ICU dataset, we use 48/12/40 train/validation/test splits for experiments. Hyperparameters of T-Phenotype and baselines are optimized through 3-fold cross-validation. For comparison of clustering performance, the number of clusters K for each dataset is shared by all methods. We select K as a hyperparameter of T-Phenotype, and the optimal cluster numbers are determined to be K = 3 (ground truth), K = 4 and K = 3 for the synthetic, ADNI and ICU dataset, respectively. Details can be found in the Appendix.
+
+Similarly, T-Phenotype has the best (or very close to best) outcome prediction performance on both ADNI and ICU datasets and outperforms AC-TPC and most other baselines in phenotype discovery on the two datasets. The baseline of KM-E2P(y) directly discovers clusters over predicted outcome distributions and achieves the best prediction performance on the ADNI dataset, which is within expectation. However, its clustering performance, particularly HROC, is inferior to that of T-Phenotype due to the negligence of similarity in temporal patterns. On the ICU dataset, while T-Phenotype has close phenotype discovery performance HPRC to baseline SEQ2SEQ, the clusters discovered by our method provide greater prognostic values as reflected in the outcome prediction accuracy.
+
+Table 2: Clustering Performance on the Synthetic Dataset.
+
+METHOD
+KM-E2P(y) KM-E2P(z) KM-DTW KM-L SEQ2SEQ AC-TPC
+T-Phenotype (J) T-Phenotype
+
+PURITY
+0.663±0.019 0.677±0.029 0.469±0.017 0.687±0.033 0.378±0.008 0.659±0.020
+0.655±0.021 0.965±0.018
+
+RAND
+0.477±0.033 0.418±0.024 0.068±0.021 0.395±0.058 -0.003±0.003 0.487±0.035
+0.440±0.051 0.902±0.048
+
+NMI
+0.569±0.045 0.485±0.047 0.077±0.022 0.447±0.059 0.005±0.003 0.596±0.043
+0.543±0.064 0.875±0.050
+
+Purity score, Rand index and normalized mutual information (NMI) are used to evaluate the
+clustering performance with ground truth phenotype labels. Best performance is highlighted in bold, and  indicates p-value < 0.01.
+
+Table 3: Benchmark Result on Two Real-world Datasets.
+
+ADNI
+
+METHOD
+KM-E2P(y) KM-E2P(z) KM-DTW KM-L SEQ2SEQ AC-TPC
+
+AUROC
+
+AUPRC
+
+HROC
+
+0.893±0.005 0.884±0.012 0.743±0.013 0.697±0.029 0.775±0.023 0.861±0.012
+
+0.728±0.017 0.711±0.020 0.522±0.020 0.465±0.019 0.550±0.030 0.665±0.020
+
+0.770±0.013 0.763±0.018 0.752±0.027 0.753±0.019 0.773±0.012 0.788±0.014
+
+HPRC
+0.701±0.012 0.690±0.013 0.618±0.021 0.593±0.018 0.642±0.022 0.694±0.013
+
+T-Phenotype (J) 0.867±0.020 0.679±0.040 0.768±0.011 0.684±0.021
+
+T-Phenotype
+
+0.891±0.005 0.716±0.015 0.791±0.013 0.713±0.009
+
+KM-E2P(y) KM-E2P(z) KM-DTW KM-L SEQ2SEQ AC-TPC
+
+0.697±0.014 0.677±0.030 0.539±0.030 0.577±0.019 0.592±0.024 0.660±0.008
+
+0.593±0.012 0.579±0.018 0.515±0.011 0.532±0.009 0.539±0.012 0.573±0.003
+
+0.682±0.029 0.686±0.031 0.636±0.023 0.682±0.009 0.690±0.011 0.695±0.014
+
+0.628±0.025 0.633±0.024 0.621±0.021 0.649±0.004 0.653±0.004 0.644±0.011
+
+T-Phenotype (J) 0.697±0.025 0.595±0.017 0.691±0.056 0.636±0.048 T-Phenotype 0.681±0.017 0.585±0.015 0.703±0.007 0.648±0.008
+
+ICU
+
+The area under the curve of receiving-operator characteristic (AUROC) and area under the curve
+of precision-recall (AUPRC) are used to assess the prognostic value of the discovered clusters on predicting target outcomes. Two composite metrics HROC and HPRC, calculated as harmonic means between predictive accuracy (AUROC or AUPRC) and a cluster consistency
+metric AUSIL, are used to measure the phenotype discovery performance. Please refer to the Appendix for details. Best performance is highlighted in bold, and  indicates p-value < 0.01.
+
+Benchmark. The clustering performance of TPhenotype is compared with six baselines, with all results reported using 5 random train/validation/test splits of the corresponding dataset. Benchmark results on synthetic dataset and two real-world datasets are provided in
+
+Phenotypes of AD Progression. The CDRSB score measures the impairment on both cognitive abilities and brain function (Coley et al., 2011) and is widely used in AD progression assessment and staging (Kim et al., 2020; O'Bryant et al., 2008). The temporal patterns in CDRSB trajectory vary in different disease stages and show stable prognostic power on patient outcomes (Delor et al., 2013). On the ADNI dataset, four phenotypes are discovered by T-Phenotype. We examine these phenotypes by plotting the CDRSB scores of Ntest = 270 test samples separately in corresponding clusters. As shown in Figure 3b, normal and high-risk patients with divergent cognitive test trajectories are correctly identified in phenotype 1 and 4 by T-Phenotype. In the meantime, for the predicted outcome of MCI, two subtypes of patients are clearly separated into two phenotypes (2 and 3) with different growth rates in CDRSB score. In comparison, AC-TPC fails to distinguish between these two subtypes as illustrated in Figure 3a, which impedes the prognostic value of clusters discovered by AC-TPC.
+Prognostic Value of T-Phenotype. We further demonstrate the prognostic value of T-Phenotype with the temporal phenotyping results obtained on a typical patient from the ADNI dataset. The studied patient had a positive biomarker of APOE 4 gene which contributes to an increased risk of AD (Yamazaki et al., 2019). Consecutive observations of patient covariates at three time stamps are plotted in Figure 3c. Hippocampus volume (green triangle) and CDRSB score (blue dot) are displayed together with diagnosis obtained at the next follow-up (yellow bar). The temporal phenotype assignment via T-Phenotype is shown at the bottom. As a predictive factor of early-stage AD (Rao et al., 2022), fast decrease in hippocampus volume leads to the initial diagnosis of phenotype 2 (MCI) in Figure 3b by T-Phenotype despite a low CDRSB score from cognitive test. Then, with a clear trend of increase appearing in CDRSB trajectory, the studied patient is classified into phenotypes (2  3  4) that reflect the growing risk in developing AD. In contrast, as shown on the top of
+
+8
+
+T-Phenotype
+
+(a) Three phenotypes from AC-TPC.
+
+(b) Four phenotypes from T-Phenotype.
+
+(c) Prognostic values of T-Phenotype and AC-TPC.
+
+Figure 3: Comparison of Phenotypes Discovered by T-Phenotype and AC-TPC on the ADNI Dataset.
+
+Figure 3c, AC-TPC simply assigns the same phenotype to the patient throughout the considered time period and is unable to provide comparable insights on AD progression from the patient trajectory.
+
+the predictor network would be another important future direction.
+8 SOCIETAL IMPACT
+
+6 CONCLUSION
+
+Discovery of phenotypes from disease trajectories is a long
+
+In this paper, we propose a novel phenotype discovery approach T-Phenotype to uncover predictive patterns from labeled time-series data. A representation learning method in frequency-domain is developed to efficiently embed the variable-length, irregularly sampled time-series into a unified latent space that provides insights on their temporal patterns. With our new notion of path-based phenotype similarity, a graph-constrained K-means approach is utilized to discover clusters representing distinct phenotypes. Throughout experiments on synthetic and real-world datasets, we show that T-Phenotype outperforms all baselines in phenotype discovery. The utility of T-Phenotype to discover clinically meaningful phenotypes is further demonstrated via comparison with the the state-of-theart temporal phenotyping method AC-TPC on real-world healthcare datasets.
+
+pursuit in healthcare. In line with the target of precision medicine, the phenotype connects temporal patterns in patient trajectory and clinical outcomes is of great prognostic value since it allows clinicians to make more accurate diagnosis and issue the most appropriate treatment to their patients. By combining notions of similarity in both patient trajectories and clinical outcomes, our method, T-Phenotype, can effectively identify phenotypes of desired property. The discovered patient subgroups can be used to improve current clinical guidelines and help clinicians to better understand the disease progression of their patients. Nevertheless, the association between temporal patterns and clinical outcome in a phenotype cannot be interpreted as causal relationship without careful tests and examinations. Application of T-Phenotype without audits from human experts may lead to undesirable outcome of patients in certain edge cases.
+
+7 LIMITATIONS
+
+Acknowledgements
+
+Our proposed method, T-Phenotype, leverages Laplace Yuchao Qin was supported by the Cystic Fibrosis Trust.
+
+encoders as a general approach to capture temporal pat- Changhee Lee was supported through the IITP grant
+
+terns from time-series data as distinct Laplace embeddings. funded by the Korea government (MSIT) (No. 2021-0-
+
+However, there may exist some complex temporal pat- 01341, AI Graduate School Program, CAU). We thank all
+
+terns, e.g., interactions between patient covariates at two reviewers at AISTATS 2023 for their time in helping us to
+
+specific time points, that cannot be encoded in this man- evaluate our work. Their insightful comments are greatly
+
+ner. To address this issue, additional representations (e.g., appreciated.
+
+representation via attention mechanism) from the input
+
+time-series can be introduced to augment the Laplace embedding, which we leave as a future work. In the meantime,
+
+References
+
+the phenotype discovery performance of T-Phenotype is H. Aguiar, M. Santos, P. Watkinson, and T. Zhu. Learn-
+
+highly dependent on the quality of predictor fP . Unstable ing of cluster-based feature importance for electronic
+
+predictions from fP will directly lead to inaccuracies in health record time-series. In International Conference
+
+phenotype assignment. Thus, effective regularization of on Machine Learning, pages 161­179. PMLR, 2022.
+
+9
+
+T-Phenotype
+
+M. T. Bahadori, D. Kale, Y. Fan, and Y. Liu. Functional A. L. Goldberger, L. A. Amaral, L. Glass, J. M. Hausdorff,
+
+subspace clustering with application to time series. In P. C. Ivanov, R. G. Mark, J. E. Mietus, G. B. Moody, C.-
+
+International Conference on Machine Learning, pages K. Peng, and H. E. Stanley. Physiobank, physiotoolkit,
+
+228­237. PMLR, 2015.
+
+and physionet: components of a new research resource
+
+P. G. Bastos, X. Sun, D. P. Wagner, A. W. Wu, and W. A. Knaus. Glasgow coma scale score in the evaluation of
+
+for complex physiologic signals. Circulation, 101(23): e215­e220, 2000.
+
+outcome in the intensive care unit: findings from the L. E. Haas, L. Van Dillen, D. de Lange, D. Van Dijk, and
+
+acute physiology and chronic health evaluation iii study. M. Hamaker. Outcome of very old patients admitted
+
+Critical Care Medicine, 21(10):1459­1465, 1993.
+
+to the icu for sepsis: a systematic review. European
+
+I. M. Baytas, C. Xiao, X. Zhang, F. Wang, A. K. Jain, and Geriatric Medicine, 8(5-6):446­453, 2017.
+
+J. Zhou. Patient subtyping via time-aware lstm networks. A. Hayashi, Y. Mizuhara, and N. Suematsu. Embedding
+
+In Proceedings of the 23rd ACM SIGKDD International time series data for classification. In Machine Learning
+
+Conference on Knowledge Discovery and Data Mining, and Data Mining in Pattern Recognition: 4th Interna-
+
+pages 65­74, 2017.
+
+tional Conference, MLDM 2005, Leipzig, Germany, July
+
+S. Blot, M. Cankurtaran, M. Petrovic, D. Vandijck, C. Lizy, J. Decruyenaere, C. Danneels, K. Vandewoude, A. Piette,
+
+9-11, 2005. Proceedings 4, pages 356­365. Springer, 2005.
+
+G. Vershraegen, et al. Epidemiology and outcome of J. C. Ho, J. Ghosh, and J. Sun. Marble: High-throughput
+
+nosocomial bloodstream infection in elderly critically phenotyping from electronic health records via sparse
+
+ill patients: a comparison between middle-aged, old, nonnegative tensor factorization. In Proceedings of the
+
+and very old patients. Critical Care Medicine, 37(5): ACM SIGKDD Conference on Knowledge Discovery
+
+1634­1641, 2009.
+
+and Data Mining, 2014.
+
+T. Ceritli, A. P. Creagh, and D. A. Clifton. Mixture of inputoutput hidden markov models for heterogeneous disease progression modeling. In Workshop on Healthcare AI and COVID-19, pages 41­53. PMLR, 2022.
+I. Y. Chen, R. G. Krishnan, and D. Sontag. Clustering interval-censored time-series for disease phenotyping. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 36, pages 6211­6221, 2022.
+
+G. Hripcsak and D. J. Albers. Next-generation phenotyping of electronic health records. Journal of the American Medical Informatics Association, 20(1):117­121, 2013.
+K. W. Kim, S. Y. Woo, S. Kim, H. Jang, Y. Kim, S. H. Cho, S. E. Kim, S. J. Kim, B.-S. Shin, H. J. Kim, et al. Disease progression modeling of alzheimer's disease according to education level. Scientific Reports, 10(1): 1­9, 2020.
+
+K. Cho, B. Van Merriënboer, D. Bahdanau, and Y. Bengio. On the properties of neural machine translation: Encoder-decoder approaches. arXiv preprint arXiv:1409.1259, 2014.
+
+C. Lee and M. van der Schaar. Temporal phenotyping using deep predictive clustering of disease progression. In International Conference on Machine Learning, pages 5767­5777. PMLR, 2020.
+
+N. Coley, S. Andrieu, M. Jaros, M. Weiner, J. Cedarbaum, and B. Vellas. Suitability of the clinical dementia rating-sum of boxes as a single primary endpoint for alzheimer's disease trials. Alzheimer's & Dementia, 7
+
+C. Lee, J. Rashbass, and M. Van der Schaar. Outcomeoriented deep temporal phenotyping of disease progression. IEEE Transactions on Biomedical Engineering, 68(8):2423­2434, 2020.
+
+(6):602­610, 2011.
+
+C. Lee, A. Light, E. S. Saveliev, M. van der Schaar, and
+
+I. Delor, J.-E. Charoin, R. Gieschke, S. Retout, P. Jacqmin, and A. D. N. Initiative. Modeling alzheimer's disease progression using disease onset time and disease trajectory concepts applied to cdr-sob scores from adni.
+
+V. J. Gnanapragasam. Developing machine learning algorithms for dynamic estimation of progression during active surveillance for prostate cancer. npj Digital Medicine, 5(1):110, 2022.
+
+CPT: Pharmacometrics & Systems Pharmacology, 2 Q. Lei, J. Yi, R. Vaculin, L. Wu, and I. S. Dhillon. Simi-
+
+(10):1­10, 2013.
+
+larity preserving representation learning for time series
+
+J. C. Denny, L. Bastarache, M. D. Ritchie, R. J. Carroll, clustering. In Proceedings of the International Joint R. Zink, J. D. Mosley, J. R. Field, J. M. Pulley, A. H. Conference on Artificial Intelligence, 2019.
+
+Ramirez, E. Bowton, et al. Systematic comparison of J. Leitgeb, W. Mauritz, A. Brazinova, M. Majdan, I. Jan-
+
+phenome-wide association study of electronic medical ciak, I. Wilbacher, and M. Rusnak. Glasgow coma scale
+
+record data and genome-wide association study data. score at intensive care unit discharge predicts the 1-year
+
+Nature Biotechnology, 31(12):1102­1111, 2013.
+
+outcome of patients with severe traumatic brain injury.
+
+A. Giannoula, A. Gutierrez-Sacristían, A. Bravo, F. Sanz, and L. I. Furlong. Identifying temporal patterns in pa-
+
+European Journal of Trauma and Emergency Surgery, 39(3):285­292, 2013.
+
+tient disease trajectories using dynamic time warping: Q. Ma, J. Zheng, S. Li, and G. W. Cottrell. Learning
+
+A population-based study. Scientific Reports, 8(4216), representations for time series clustering. Advances in
+
+2018.
+
+Neural Information Processing Systems, 32, 2019.
+
+10
+
+T-Phenotype
+S. E. O'Bryant, S. C. Waring, C. M. Cullum, J. Hall, L. Lacritz, P. J. Massman, P. J. Lupo, J. S. Reisch, R. Doody, T. A. R. Consortium, et al. Staging dementia using clinical dementia rating scale sum of boxes scores: a texas alzheimer's research consortium study. Archives of Neurology, 65(8):1091­1095, 2008.
+K. J. Ramos, P. J. Smith, E. F. McKone, J. M. Pilewski, A. Lucy, S. E. Hempstead, E. Tallarico, A. Faro, D. B. Rosenbluth, A. L. Gray, et al. Lung transplant referral for individuals with cystic fibrosis: Cystic fibrosis foundation consensus guidelines. Journal of Cystic Fibrosis, 18(3):321­333, 2019.
+Y. L. Rao, B. Ganaraja, B. Murlimanju, T. Joy, A. Krishnamurthy, and A. Agrawal. Hippocampus and its involvement in alzheimer's disease: a review. 3 Biotech, 12(2):55, 2022.
+R. L. Richesson, J. Sun, J. Pathak, A. N. Kho, and J. C. Denny. Clinical phenotyping in selected national networks: demonstrating the need for high-throughput, portable, and computational methods. Artificial Intelligence in Medicine, 71:57­61, 2016.
+P. J. Rousseeuw. Silhouettes: a graphical aid to the interpretation and validation of cluster analysis. Journal of Computational and Applied Mathematics, 20:53­65, 1987.
+P. Schulam, F. Wigley, and S. Saria. Clustering longitudinal clinical marker trajectories from electronic health data: Applications to phenotyping and endotype discovery. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 29, 2015.
+D. Steinley. Properties of the hubert-arable adjusted rand index. Psychological Methods, 9(3):386, 2004.
+N. X. Vinh, J. Epps, and J. Bailey. Information theoretic measures for clusterings comparison: is a correction for chance necessary? In Proceedings of the 26th Annual International Conference on Machine Learning, pages 1073­1080, 2009.
+J. Xie, R. Girshick, and A. Farhadi. Unsupervised deep embedding for clustering analysis. In International Conference on Machine Learning, pages 478­487. PMLR, 2016.
+Y. Yamazaki, N. Zhao, T. R. Caulfield, C.-C. Liu, and G. Bu. Apolipoprotein e and alzheimer disease: pathobiology and targeting strategies. Nature Reviews Neurology, 15(9):501­518, 2019.
+B. Yang, X. Fu, N. D. Sidiropoulos, and M. Hong. Towards k-means-friendly spaces: Simultaneous deep learning and clustering. In International Conference on Machine Learning, pages 3861­3870. PMLR, 2017.
+X. Zhang, J. Chou, J. Liang, C. Xiao, Y. Zhao, H. Sarv, C. Henchcliffe, and F. Wang. Data-driven subtyping of parkinson's disease using longitudinal clinical records: A cohort study. Scientific Reports, 9(797), 2019.
+11
+
+T-Phenotype
+
+Appendix
+The appendix is organized in the following structure.
+A Detailed discussion of the Laplace encoder. B Proof of Proposition 1 and relevant discussions. C The graph-constrained K-means algorithm D Experiment setup. E Hyperparameter Selection. F Complete benchmark results. G Additional analyses of results obtained on the two real-world datasets.
+A summary of major notations used in this paper is provided below.
+
+NOMENCLATURE
+
+x y t z w X  g(x) dy(·, ·) (x1  x2) (z1  z2) d(x1, x2) d (z1, z2) S G K C fL fE fP
+
+Continuous-time disease trajectory of a patient Label vector indicating clinical status of a patient A vector of time stamps A vector of latent variables A vector of Laplace embedding Discrete-time observation to disease trajectory x(t) A connected set of patient trajectories which represents a temporal pattern Vector-valued function that describes the conditional distribution p(y|x) Distance metric of two label distributions A translation from trajectory x1 to x2 A translation from latent representation z1 to z2 Path-based similarity score between trajectories x1 and x2 Proxy of path-based similarity score d(x1, x2) in latent space A distance matrix of path-based similarity score between samples in a dataset A graph generated from matrix S with threshold  Number of clusters A set of K clusters A Laplace encoder A composite encoder with feature-wise Laplace encoders A predictor for label distribution
+
+Code Availability. The source code of T-Phenotype can be found in the two GitHub repositories listed below:
+
+· The van der Schaar lab repo: https://github.com/vanderschaarlab/tphenotype · The author's personal repo: https://github.com/yvchao/tphenotype
+
+A ANALYSIS OF THE LAPLACE ENCODER
+A.1 Implementation Details
+The proposed Laplace encoder is implemented with a RNN-based neural network fL parameterized by L. As shown in Figure A.1, given discrete time-series of a one-dimension trajectory x(t), the Laplace encoder first generates a summary of time-series x(t) via the RNN. With the summary as input, the MLP outputs a representation w  Cn(d+1).
+
+12
+
+T-Phenotype
+Elements in w can be divided into two groups: poles and coefficients, which are further used to construct a function in the frequency domain, Fw(s), as defined in (3). Changing the order of poles (and associated coefficients) in w has no effect on Fw(s) since it is permutation-invariant to the poles in w. As discussed in the main manuscript and in the next paragraph, we impose a lexical order on poles in the MLP output w to make it a unique representation of Fw(s). The trajectory x(t) can be reconstructed as x^(t) through the inverse Laplace transform (4) on Fw(s). Here, the reconstruction x^(t) is a function and its value can be evaluated everywhere in t  [0, 1]. This allows us to compare input time-series with variable-length and irregularly-sampled observations in a unified latent space. For the sake of convenience, we denote with L-1(w) = x^(t) = L-1[Fw(s)](t) the transform that maps embedding w to its time-domain reconstruction x^(t).
+
+Figure A.1: Laplace Encoder.
+
+Robust Lexical Order of Poles. Due to the summation in (3), Fw(s) is permutation-equivariant with respect to the poles in w. Thus, we impose a lexical order (pm  pm+1 for m = 1, . . . , n - 1) on the poles to obtain a unique Laplace embedding w as discussed in the manuscript. To guarantee this property, we transform the unordered representation (output of the MLP in Laplace encoder) into the final unique Laplace embedding w by sorting the poles
+(together with their associated coefficients) in a lexical order. To achieve a stable ordering that is robust to inevitable noise in w, we encourage any pair of two poles to be sufficiently different to avoid abrupt changes in their order. Hence, given two poles pm, pl, we say pm  pl if and only if (Re(pm) < Re(pl))  (|Re(pm) - Re(pl)| > pole) or (|Re(pm) - Re(pl)|  pole)  (Im(pm)  Im(pl)), and pm > pl otherwise, where pole  0 is a threshold that controls the robustness of the lexical order. The best threshold pole is search as a hyperparameter in our experiment.
+
+Ranges of Poles and Coefficients. Each pole pm in embedding w is located on the complex plane C. The real part Re(pm) indicates the increase or decay speed of the corresponding component (eRe(pm)t) in the time-domain reconstruction x^(t) = L-1(w). Too large or small value of Re(pm) leads to unrealistic signals. In the meantime, The imaginary part Im(pm) represents the frequency of oscillations in the related component (cos(Im(pm)t) + j sin(Im(pm)t), j2 = -1) in reconstruction x^(t). Very high-frequency oscillation in the input time-series x(t) are usually caused by random noise and should be discarded in reconstruction x^(t). In our experiment, we limit the
+range of poles to the area of {p |Re(p)|  rmax, |Im(p)|  f reqmax}, where rmax limits that maximum increase or decrease speed of signals in reconstruction x^, f reqmax is the maximum allowed frequency such that high-frequency signals above f reqmax are considered as a noise component in time-series x(t) and, thus, discarded when constructing Fw(s). In our experiments, we set rmax = 10 and f reqmax = 20Hz. Similarly, the coefficient cm,l in embedding w is
+limited to a square area of {c |Re(c)|  cmax, |Im(c)|  cmax}. We set cmax = 5 which is sufficient for normalized time-series (via min-max or normal scaling). The range of poles and coefficients in w can be adjusted accordingly
+based on needs in practical application scenarios. When fed into the predictor network fP , the poles and coefficients in embedding w are normalized by the corresponding maximum allowed values to facilitate the learning process.
+
+Embedding of Static Features. In order to improve computation efficiency, when the d-th feature dimension xd of trajectory x is known to be constant over time, i.e., xd(t)  xd(0), instead of training a Laplace encoder, the static value xd(0) is directly used to represent xd(t), and the d-th component wd in latent variable z is replaced by xd(0).
+
+Regularization Terms. Apart from the lexical order imposed on the embedding w, we further introduce three regularization terms that encourage the Laplace encoder to provide a unique and consistent Laplace representation given an input time-series. These regularization terms are combined into the second term of Lunique in (5); we will describe each in turn.
+
+The first regularizer, lsep, penalizes the case where two poles in embedding w are nearly identical ­ that is, pm and pl are considered as an identical pole when |pm - pl|  pole ­ based on the following hinge loss:
+
+lsep(x^(t)) = max(0, pole - |pm - pl|).
+
+(10)
+
+m=l
+
+13
+
+T-Phenotype
+
+Here, pm and pl are two poles in the associated embedding w given the input time-series x(t), i.e., w = fL(x(t)), and the threshold pole > 0 for robust pole sorting is reused here as a pole separation threshold.
+The second regularizer, lreal, ensures that the reconstructed trajectory x^(t) is real-valued on [0, 1] by suppressing the imaginary part of the reconstructed trajectory x^(t) via the following loss:
+
+1 lreal(x^(t)) = T
+
+Im(x^(t))
+
+2 2
+
+,
+
+(11)
+
+where t = [t1, . . . , tT ] includes time stamps randomly sampled over tj  [0, 1] for j = 1, . . . , T . Specifically,
+
+tj
+
+=
+
+clamp(
+
+j T
+
++
+
+1 2T
+
+,
+
+min
+
+=
+
+0, max
+
+=
+
+1), 
+
+
+
+Normal(0, 1).
+
+The last regularizer, ldistinct, encourages that no two distinct Laplace embeddings generate the same trajectory based on
+
+the following loss:
+
+ldistinct(x^i(t), x^j (t)) =
+
+wi - wj
+
+22e-
+
+x^i(t)-x^j (t)
+
+2
+2,
+
+(12)
+
+where
+
+the
+
+radial
+
+basis
+
+similarity
+
+function
+
+e-
+
+x^i(t)-x^j (t)
+
+2 2
+
+is
+
+used
+
+to
+
+discover
+
+similar
+
+trajectories,
+
+wi
+
+and
+
+wj
+
+are
+
+embeddings of input time-series while x^i(t) and x^j(t) are their time-domain reconstructions. Since the input time-
+
+series may be of different lengths and sampling intervals, we use the reconstructed trajectories for pair-wise comparison
+
+between time-series here.
+
+Overall, we construct Lunique(L) as a combination of the three regularization terms introduced above:
+
+
+
+
+
+dimx 1
+
+Lunique(L) =
+
+ N
+
+lsep(x^id(t))
+
++
+
+1 
+
+lreal(x^id(t))
+
++
+
+2 
+
+1 N (N -
+
+1)
+
+ldistinct(x^di (t), x^dj (t)) , (13)
+
+d=1
+
+i
+
+i=j
+
+where  is the coefficient for Lunique(L) in (5), 1 and 2 are balancing coefficients that trade-off different uniqueness properties in the Laplace encoder. In the experiment, due to the high computational complexity, the last term ldistinct is only evaluated on a subset of 10 randomly selected time-series in each training batch. In addition, since ldistinct relies on the reconstructed time-series x^(t) which may be inaccurate in the beginning of training, we fix 2 to 0.01 such that it majorly takes effect after the reconstruction error is small enough.
+
+A.2 Quantitative Analysis
+
+Comparison with Regular Auto-encoder. We provide a toy example to demonstrate the advantage of our proposed Laplace encoder over regular auto-encoders in time-series reconstruction. A Laplace encoder composed of a 1-layer GRU (Cho et al., 2014) and a 1-layer MLP with 10 hidden units in each layer is considered in the following discussion. Other parameters of the Laplace encoder are set as n = 4, d = 1,  = 1.0, 1 = 0.1, 2 = 0.01, pole = 1.0. A regular time-series auto-encoder is used for comparison. The auto-encoder has a 1-layer GRU network as the encoder. The decoder contains a 1-layer MLP on top of another 1-layer GRU. Each layer in the auto-encoder includes 10 hidden units. The auto-encoder maps the input time-series to a latent variable. Then, the latent variable is provided to the decoder network for reconstruction of the entire time-series.
+Consider a toy dataset with N = 1000 irregularly sampled time-series in t  [0, 1]. Each sample contains T = 15 observations from one of the following four types of trajectories:
+
+· Type 1: x(t) = cos(2(t - )). · Type 2: x(t) = cos((t - )). · Type 3: x(t) = sin((t - )). · Type 4: x(t) = sin(2(t - )).
+
+Delay
+
+term
+
+
+
+
+
+Exp(
+
+1 2
+
+).
+
+Gaussian
+
+noise
+
+sampled
+
+from
+
+Normal(0,
+
+0.032)
+
+is
+
+independently
+
+introduced
+
+to
+
+the
+
+observa-
+
+tions at different time points. The mean squared error (MSE) in time-series reconstruction of the considered Laplace
+
+encoder and auto-encoder network is evaluated over 5 random splits of the toy dataset with the train/validation/test ratio
+
+of 64/16/20. Our proposed Laplace encoder achieves the best performance of MSE = 0.039 ± 0.008. The auto-encoder
+
+has a much higher reconstruction error of MSE = 0.108 ± 0.019. Comparison of typical reconstruction outcomes of
+
+the Laplace encoder and the auto-encoder is illustrated in Figure A.2.
+
+Sensitivity Analysis. We further conduct a sensitivity analysis of the Laplace encoder fL under different hyperparameters on the toy dataset. The default hyperparameters are set as n = 4, d = 1,  = 1.0, 1 = 0.1, 2 = 0.01, pole = 1.0. To evaluate the impact of individual hyperparameter on the Laplace encoder, in each test, we only alter the value of one
+
+14
+
+T-Phenotype
+
+(a) Trajectory reconstruction via Laplace encoder. (b) Trajectory reconstruction via Auto-encoder. Figure A.2: Comparison of Time-series Reconstruction Outcomes of Laplace Encoder and Auto-encoder.
+
+(a) Impact of .
+
+(b) Impact of 1.
+
+(c) Impact of 2.
+
+(d) Impact of pole.
+
+(e) Impact of pole number n. (f) Impact of maximum pole degree d.
+
+Figure A.3: Sensitivity of Laplace Encoder with Respect to Different Hyperparameters. Error bars are calculated via evaluation on 3 random splits of the toy dataset.
+
+hyperparameter and keep other hyperparameters the same as default setting. The parameter sensitivity is measured via the reconstruction error (MSE), and the sensitivity test result is given in Figure A.3.
+It can be found that our proposed Laplace encoder fL has relatively stable time-series reconstruction performance under different hyperparameters. As mentioned earlier, the regularizer lditinct may generate wrong gradients in the beginning of training due to the large reconstruction error. The increased MSE for larger 2 in Figure A.3c is within expectation, and we choose to set 2 to 0.01 such that it only takes effect when the reconstruction error is small enough.
+In addition, the effect of pole separation threshold pole on the Laplace embedding is illustrated in Figure A.4. When pole = 0.0, the order of poles in Laplace embedding w can easily be affected by random noise in input time-series, which makes it difficult to ensure the uniqueness of w. In contrast, setting pole = 1.0 effectively improves the representations learned by the Laplace encoder, and different components in the Laplace transform Fw(s) are clearly represented by distinct poles (marked with different colors).
+Impact of Sampling Rate in Input Data. The Nyquist Sampling Theorem states that a band-limited signal (maximum frequency of B) can be perfectly reconstructed from sequential observations with (average) sampling rate above 2B. It provides a lower bound on the number of time-series observations required for our proposed Laplace encoder to work. Thus, we assume that the sampling rate in real-world datasets is sufficiently large so that important temporal patterns can be correctly identified. To validate the above statement, we conduct a synthetic experiment on time-series
+15
+
+T-Phenotype
+
+(a) pole = 0.0.
+
+(b) pole = 1.0.
+
+Figure A.4: Distribution of Laplace Embedding w under Different Thresholds of pole. The Laplace embeddings of
+
+trajectory
+
+x(t)
+
+=
+
+cos(2(t
+
+-
+
+)),
+
+
+
+
+
+Exp(
+
+1 2
+
+)
+
+are
+
+plotted
+
+as
+
+poles
+
+and
+
+coefficients
+
+on
+
+the
+
+complex
+
+plane
+
+with
+
+different
+
+values
+
+of
+
+pole .
+
+data
+
+generated
+
+by
+
+x(t)
+
+=
+
+sin(2t
+
++
+
+)
+
+where
+
+
+
+
+
+Exp(
+
+1 2
+
+)
+
+with
+
+different
+
+sampling
+
+rates.
+
+Figure
+
+A.5
+
+demonstrates
+
+that
+
+the reconstruction error of the Laplace encoder converges to zero when the sampling rate is sufficiently large.
+
+Figure A.5: Impact of Sampling Rate on Time-series Reconstruction via Laplace Encoder.
+
+B PROOF OF PROPOSITION 1
+
+Proposition 1 states that, given two Laplace embeddings z1 and z2 in latent space Z, the distance between their
+
+corresponding time-domain trajectories x^1 and x^2 is upper-bounded by 
+
+z1 - z2
+
+2 2
+
+with
+
+some
+
+scalar
+
+
+
+>
+
+0.
+
+The
+
+proof of Proposition 1 can be derived as the following:
+
+Proof. Let us first consider the uni-variate case. Given two arbitrary Laplace embeddings w1, w2  Cn(d+1), their timedomain reconstructions can be obtained via inverse Laplace transform, i.e., x^i(t) = L-1(wi) L-1[Fwi (s)](t), i = 1, 2. According to (3) and (4), we have
+
+n
+x^i(t) =
+
+d cm i ,ltl-1 epimt, t  0,
+
+(14)
+
+(l)
+
+m=1 l=1
+
+where (l) = (l - 1)! is the Gamma function, wi = [p1i , pi2, . . . , ci1,1, . . . , cni ,d] , i = 1, 2.
+
+Difference in One Coefficient. Suppose w1 and w2 only differ at one coefficient cm,l, which leads to the result
+
+w1 - w2
+
+2 2
+
+=
+
+|cm 1 ,l
+
+-
+
+cm 2 ,l|2.
+
+Then,
+
+1
+
+x^1 - x^2
+
+= 2
+L[20,1]
+
+0
+
+|x^1(t) - x^2(t)|2dt,
+
+=
+
+1
+|cm 1 ,l - c2m,l|2
+0
+
+tl-1 epmt
+
+2
+dt,
+
+(l)
+
+ |c1m,l - cm 2 ,l|2mc ,l = mc ,l w1 - w2 22,
+
+(15)
+
+16
+
+T-Phenotype
+
+where mc ,l is some suitable constant.
+
+Difference in One Pole. Now, let us consider the case where w1 and w2 only differ at one pole pm which gives
+
+w1 - w2
+
+2 2
+
+=
+
+|p1m
+
+-
+
+p2m|2.
+
+Without
+
+loss
+
+of
+
+generality,
+
+we
+
+assume
+
+pm 2
+
+-
+
+pm 1
+
+=
+
+r
+
++
+
+j,
+
+where
+
+r
+
+
+
+0,
+
+j2
+
+=
+
+-1.
+
+The
+
+following inequality can be established when t  [0, 1]:
+
+|1 - e(p2m-pm 1 )t|2 = |1 - ert(cos(t) - j sin(t))|2,
+
+= (1 - ert)2 + 2ert(1 - cos(t)),
+
+ (1 - ert)2 + ert2t2,  r2t2 + ert2t2,
+
+(via
+
+ert
+
+>
+
+0
+
+and
+
+1
+
+-
+
+cos(x)
+
+
+
+x2 )
+
+2
+
+(16)
+
+(via r  0 and 0  1 - ert  (-r)t)
+
+ (r2 + 2)t2,
+
+= |pm 1 - pm 2 |2t2.
+
+Hence, we have
+
+1
+
+x^1 - x^2
+
+= 2
+L[20,1]
+
+0
+
+|x^1(t) - x^2(t)|2dt,
+
+=
+
+1
+
+ci,ltl-1
+
+2
+|ep1mt|2|1 - e(pi2-pi1)t|2dt,
+
+0 (l)
+
+(17)
+
+
+
+1 0
+
+ci,ltl-1 (l)
+
+2
+|epm 1 t|2|p1m - pm 2 |2t2dt,
+
+ |p1m - pm 2 |2mp = mp w1 - w2 22,
+
+where mp is some suitable constant.
+
+General Cases. Now, we define an operator Si(w1, w2) that generates a new composite vector w¯i from w1 and
+
+w2. The first i elements of the composite vector w¯i are taken from w2 while the latter n(d + 1) - i elements of
+
+w¯i are obtained from w1. For instance, we have S0(w1, w2) = w1, S1(w1, w2) = [p12, p12, p31, . . . , c11,1, . . . , c1n,d] ,
+
+S2(w1, w2) = [p21, p22, p13, p14 . . . , c11,1, . . . , cn1 ,d] , . . ., and Sn(d+1)(w1, w2) = w2. It is easy to see that Si(w1, w2)
+
+and Si+1(w1, w2) only differ at one pole or one coefficient, and
+
+Si(w1, w2) - Si+1(w1, w2)
+
+2 2
+
+=
+
+|pi1+1
+
+-
+
+pi2+1|2
+
+when 0  i  n - 1 and
+
+Si(w1, w2) - Si+1(w1, w2)
+
+2 2
+
+=
+
+|cm 1 ,l
+
+- cm 2 ,l|2
+
+otherwise, where m
+
+=
+
+i-n d
+
++1
+
+,l
+
+=
+
+i - n - (m - 1)d + 1. Each composite vector w¯i = Si(w1, w2) yields a time-domain trajectory L-1(w¯i) via inverse
+
+Laplace transform of Fw¯i (s).
+
+Note that L-1(w¯0) = L-1(w1) = x^1 and L-1(w¯n(d+1)) = L-1(w2) = x^2. Based on the triangular inequality,
+
+x^1 - x^2
+
+= 2
+L[20,1]
+
+n(d+1)-1
+
+L-1(Si(w1, w2)) - L-1(Si+1(w1, w2))
+
+2 L[20,1]
+
+i=0
+
+n(d+1)-1
+
+
+i=0
+
+L-1(Si(w1, w2)) - L-1(Si+1(w1, w2))
+
+, 2
+L2[0,1]
+
+n(d+1)-1
+
+
+
+ Si(w1, w2) - Si+1(w1, w2) 22,
+
+i=0
+
+n
+
+nd
+
+=
+
+|p1m - pm 2 |2 +
+
+|c1m,l - cm 2 ,l|2,
+
+m=1
+
+m=1 l=1
+
+=
+
+w1 - w2
+
+2 2
+
+,
+
+where we take  = maxm,l(mp , mc ,l).
+
+(18)
+
+Finally, for the multivariate case, let us consider two latent embeddings z1 and z2 as well as their associated time-domain reconstructions x^1 and x^2. We define the distance between trajectories x^1 and x^2 as
+
+x^1 - x^2
+
+2 L2[0,1]
+
+dimx 1
+|x^1d(t) - x^d2(t)|2dt,
+d=1 0
+
+(19)
+
+17
+
+T-Phenotype
+
+where x^dm component
+
+is the d-th dimension of trajectory, x^m = L-1(wdm) of zm. According to (18), we have the following bound
+
+= for
+
+L-1[Fwdm (s)] for each dimension d.
+
+m
+
+=
+
+1, 2,
+
+wdm
+
+is
+
+the
+
+d-th
+
+1
+
+0
+
+|x^d1(t) - x^2d(t)|2dt =
+
+x^1d - x^d2
+
+  2
+
+L[20,1]
+
+d
+
+wd1 - wd2
+
+22,
+
+(20)
+
+where d > 0 is some suitable scalar. Since
+
+z1 - z22
+
+2 2
+
+=
+
+dimx d=1
+
+wd1 - wd2 22, the distance between the two
+
+reconstructed trajectories x^1 and x^2 can be upper-bounded as follows with some suitable  > 0.
+
+dimx
+
+x^1 - x^2
+
+ 2
+L2[0,1]
+
+d
+
+wd1 - wd2
+
+2 2
+
+
+
+
+
+z1 - z2
+
+2 2
+
+.
+
+d=1
+
+(21)
+
+Corollary 1. Given a continuous set z in latent space, the set , which consists of reconstructed trajectories of z  z, is also a continuous set in trajectory space X .
+
+Proof. Consider a trajectory x^   and its corresponding latent embedding z  z. For any  > 0, due to the
+
+continuity of z, there must exist another embedding z  z such that
+
+z-z
+
+2 2
+
+<
+
+,
+
+where
+
+
+
+>
+
+0
+
+is
+
+a
+
+scalar.
+
+Let
+
+us denote the time-domain reconstruction of z as x^  . According to Proposition 1,
+
+x^ - x^
+
+  2
+L[20,1]
+
+z-z
+
+2 2
+
+holds
+
+for
+
+some
+
+
+
+>
+
+0.
+
+Setting
+
+
+
+=
+
+1 
+
+leads
+
+to
+
+the
+
+inequality
+
+x^ - x^
+
+2 L[20,1]
+
+
+
+
+
+which
+
+indicates
+
+the
+
+continuity
+
+of
+
+set
+
+.
+
+Equivalent Translation in the Latent Space. Consider two trajectories x1, x2  X with the corresponding latent embeddings z1 and z2 in the latent space. We construct a set Pz = {~(z1  z2)} of all possible continuous path ~ in the latent space that connects z1 and z2. Let gE : Z  X be a function that maps latent embedding z back to its time-domain reconstruction x^ in the trajectory space. Then, given a translation (x1  x2) in the trajectory space, we
+can define the (approximately) equivalent translation in the latent space as
+
+(z1  z2)
+
+arg min min max
+~Pz z~ x
+
+x - gE(z)
+
+, 2
+L[20,1]
+
+(22)
+
+where minz~ maxx
+
+x - gE(z)
+
+2 L2[0,1]
+
+measures the minimum distance between translation, i.e., , and the time-
+
+domain reconstruction of latent path ~, i.e., ~ = {gE(z) | z  ~}. In general,  is the closet projection of  within the
+
+latent space Z, and the equivalence of trajectory translation is approximate. If every trajectory x   has a rational
+
+Laplace transform with no more than n poles and maximum degree of d as described in (3), the equivalence becomes
+
+strict. Without loss of generality, let us consider the uni-variate case. Given a translation , we assume each x  
+
+can be exactly described by the Laplace transform Fw(s) in (3), where w = fL(x(t)), t is a vector of some suitable sampling time stamps. For any two trajectories x, x   that satisfy |x(t) - x (t)|   almost everywhere in t  [0, 1],
+
+we have
+
+|Fw(s) - Fw (s)|2 = 
+
+
+
+2
+
+(x(t) - x (t))e-stdt ,
+
+0 
+|x(t) - x (t)|2|e-st|2dt,
+
+0 
+
+(23)
+
+ 2
+
+|e-st|2dt,
+
+0
+
+2
+
+=
+
+,
+
+2Re(s)
+
+holds for Re(s) > 0. When   0, we have x  x and Fw  Fw. Note that Fw - Fw is rational and can be determined with a sufficient number of observations in its region of convergence, e.g., Re(s) > 0. The equivalence in Laplace transform, i.e., |Fw(s) - Fw(s)|2  0, implies that w = w.6 Thus, x  x also leads to w  w, which means that the collection of Laplace embeddings {w|w = fL(x(t)), x  } is in fact a continuous path  in the latent space. Thereby, path  is a latent translation that exactly yields the trajectory translation . Similar results can be easily
+extended to the multi-variate trajectory setting.
+
+6When Fw(s) and Fw (s) have less than n poles, w and w may take value from multiple alternative embeddings. However, we can always select the combination such that w = w.
+
+18
+
+T-Phenotype
+
+Justification for Latent Path-based Test. The path-based connectivity test d(x1, x2) is defined based on the oracle model g(x) of conditional distribution p(y|x). In our proposed method T-Phenotype, a predictor is built upon
+the Laplace embedding, i.e., f (X) = fP  fE(X), to approximate the oracle conditional distribution such that f (X)  g(x) given time-series X sampled from x. Thus, we have d(x1, x2)  maxx,i=1,2 dy(f (x(t)), f (Xi)), where t is a vector of some suitable observation time stamps. Further, note that translation  in trajectory space can be approximated by ^ as time-domain reconstruction of latent translation (z1  z2) in Z, where zi = fE(Xi) for i = 1, 2. Then, we have
+
+max dy(f (x(t)), f (Xi))  max dy(f (x^(t)), f (Xi))  max dy(fP (z), fP (zi)),
+
+(24)
+
+x,i=1,2
+
+x^^,i=1,2
+
+z,i=1,2
+
+which leads to the latent path-based test in (7).
+
+C GRAPH-CONSTRAINED K-MEANS ALGORITHM IN T-PHENOTYPE
+
+The graph-constrained K-means iteration in Algorithm 1 is provided in Algorithm C.1. After each run via GK-
+means, the objective function J in (2) is re-evaluated. The main algorithm of T-Phenotype stops after 5 iterations
+with no improvement in objective J under maximum of 1,000 iterations. Alternatively, T-Phenotype stops when the improvement is below certain tolerance tol = 10-7, i.e., |J|  tol.
+
+Algorithm C.1 GK-means (Single K-means iteration over similarity graph G)
+
+Input: J, e1, e2, . . . , eK , G
+
+Output: C = {C1, C2, . . . , CK }
+
+1: for k = 1, 2, . . . , K do
+
+2: vk, X(k)  ek 3: Ck  {X(k)}
+
+4: end for
+
+5: Dfree  {X|X  Ck, Ck  C}
+
+6: while |Dfree| > 0 do
+
+7: for X  Dfree do
+
+8:
+
+C
+
+
+
+arg
+
+min
+Ck
+
+C,X
+
+G Ck
+
+dy(f (X), vk)
+
+9:
+
+C  C  {X}
+
+10:
+
+Dfree  Dfree \ {X}
+
+11: end for
+
+12: for k = 1, 2, . . . , K do
+
+13:
+
+vk
+
+
+
+1 |Ck |
+
+XCk f (X)
+
+14: end for
+
+15: end while
+
+J objective, ek cluster seed, G: similarity graph Initialize cluster Ck with seed ek
+Get the set of unclustered samples Find the best cluster assignment
+Update cluster centroid
+
+D EXPERIMENT SETUP
+D.1 Datasets and Statistics
+For the two real-world medical datasets, we want to capture recent temporal patterns and associated target outcomes. Thus, we utilize a sliding window of size 6 years and 24 hours to extract sub-sequences containing temporal predictive patterns among most recent observations for ADNI and ICU datasets, respectively. Statistics of major feature variables in the ADNI dataset and ICU dataset can be found in Table D.1 and Table D.2, respectively.
+D.2 Baselines
+We compare the performance of T-Phenotype with the following five benchmarks ranging from traditional method to state-of-the-art deep learning-based methods, where each clustering method reflects a different notion of temporal phenotypes: K-means with Warping-based Distance. The technique of dynamic time warping (DTW) provides one way to measure time-series similarity regardless of the observation interval. Time-series with similar temporal patterns usually
+19
+
+T-Phenotype
+
+STATIC COVARIATES
+
+Demographic
+
+Race Education
+
+Genetic
+
+APOE 4
+
+Table D.1: Statistics of ADNI Dataset.
+
+TYPE
+Cat. Cat.
+Cat.
+
+MEAN
+0.93 16.13
+0.44
+
+MIN/MAX (MODE)
+White 16
+0
+
+Ethnicity Marital Status
+
+TYPE
+Cat. Cat.
+
+MEAN
+0.97 0.75
+
+MIN/MAX (MODE)
+Not Hisp/Latino Married
+
+TIME-VARYING COVARIATES
+
+Demographic Age
+
+Biomarker
+
+Entorhinal Fusiform Hippocampus Intracranial
+
+Cognitive
+
+CDRSB ADAS-11 RAVLT Immediate RAVLT Forgetting
+
+TYPE
+Cont.
+Cont. Cont. Cont. Cont.
+Cont. Cont. Cont. Cont.
+
+MEAN
+73.62
+3.6E+3 1.7E+4 6.9E+4 1.5E+6
+1.21 8.58 38.26 4.19
+
+MIN/MAX (MODE)
+55/91.4
+1.0E+3/6.7E+3 9.0E+3/2.9E+4 2.8E+3/1.1E+4 2.9E+2/2.1E+6
+0.0/17.0 0.0/70.0 0.0/75.0 -12.0/15.0
+
+Mid Temp Ventricles Whole Brain
+Mini Mental State ADAS-13 RAVLT Learning RAVLT Percent
+
+TYPE
+Cont. Cont. 1.0E+6
+Cont. Cont. Cont. Cont.
+
+MEAN
+2.0E+4 4.1E+4 6.5E+5/1.5E+6
+27.84 13.60 4.65 51.68
+
+MIN/MAX (MODE)
+8.9E+3/3.2E+4 5.7E+3/1.6E+5
+2.0/30.0 0.0/85.0 -5.0/14.0 -500.0/100.0
+
+Static Covariates
+
+Demographic Age
+
+Admission
+
+ICU Type
+
+Table D.2: Statistics of ICU Dataset.
+
+TYPE
+Cont. Cat.
+
+MEAN
+67.25 2.76
+
+MIN/MAX (MODE)
+15.0/90.0 Medical ICU
+
+Gender
+
+TYPE Cat.
+
+MEAN 0.56
+
+MIN/MAX (MODE) Male
+
+TIME-VARYING COVARIATES
+
+Blood Test
+
+Albumin ALT Bilirubin Cholesterol Glucose HCO3 K Na TroponinI Platelets
+
+Monitoring
+
+Heart Rate SysABP DiasABP MAP GCS Urine
+
+Oxygen
+
+FiO2 PaO2
+
+TYPE
+Cont. Cont. Cont. Cont. Cont. Cont. Cont. Cont. Cont. Cont.
+Cont. Cont. Cont. Cont. Cont. Cont.
+Cont. Cont.
+
+MEAN
+2.92 3.9E+3 2.91 156.52 1.4E+3 23.12 4.14 139.07 7.15 1.9E+2
+86.80 119.57 59.54 80.23 11.41 12E+2
+0.54 147.82
+
+MIN/MAX (MODE)
+1.0/5.3 1.0/1.2E+4 0.1/47.7 28.0/330.0 1.0E+1/1.1E+3 5.0/50.0 1.8/22.9 98.0/177.0 0.3/49.2 6.0/1.0E+3
+0.0/199.5 0.0/273.0 0.0/268.0 0.0/295.0 3.0/15.0 0.0/1.1E+5
+0.21/1.0 0.0/500.0
+
+ALP AST BUN Creatinine Lactate pH Mg HCT TroponinT White Blood Cell
+Respiratory Rate NISysABP NIDiasABO NIMAP Temperature
+PaCO2 SaO2
+
+TYPE
+Cont. Cont. Cont. Cont. Cont. Cont. Cont. Cont. Cont. Cont.
+Cont. Cont. Cont. Cont. Cont.
+Cont. Cont.
+
+MEAN
+1.2E+2 5.1E+2 27.41 1.50 2.88 7.49 2.03 30.69 1.20 12.67
+19.64 119.20 58.18 77.13 37.07
+40.41 96.65
+
+MIN/MAX (MODE)
+1.2E+1/2.2E+3 4.0/1.8E+4 0.0/197.0 0.1/22.1 0.3/29.3 1.0/735.0 0.6/9.9 9.0/61.8 0.01/24.91 0.1/187.5
+0.0/98.0 0.0/247.0 0.0/180 0.0/194.0 -17.8/42.1
+11.0/100.0 26.0/100.0
+
+leads to smaller DTW distances. We apply conventional K-means with the DTW-based similarity measure to discover clusters representing different temporal patterns. We denote this approach as KM-DTW.
+Deep Temporal K-means. Embedding (i.e., hidden representations) from RNNs can provide meaningful information to measure the similarity between time-series. With the encoder-predictor (E2P) structure introduced in (Lee and van der Schaar, 2020), we include the baseline of KM-E2P that performs clustering in a representation space via K-means. We denote the baseline as KM-E2P(z) when The representation space is formed by the latent embeddings from an encoder network. The discovered cluster will capture both similarities in input time-series and the output label prediction due to the E2P structure. When the representation space is selected to be the output (label prediction) of the predictor network, we refer to the method as KM-E2P(y). In this case, the discovered clusters are aligned to major modes in the label distribution and are not necessarily associated with certain temporal patterns in trajectory space.
+K-means with Laplace Encoder. Similar to the baseline of KM-DTW, the time-series embedding from Laplace encoder provides a unified representation of (potentially) irregularly sampled time-series. The Euclidean distance between Laplace embeddings can thus be used as a similarity measure for different patient trajectories. In practice, the longitudinal observations of patients are first converted to a latent space via the Laplace encoder. Then, K-means algorithm is performed over the latent representations to identify patient subgroups based on their similarity in temporal patterns.
+Toward K-means Friendly Spaces using Sequence-to-sequence. Sequence-to-sequence (SEQ2SEQ) learning paradigm allows the learning of a representation space that is easier to perform clustering compared to the original time-series data. Such baseline reflects the recent trend of combining conventional clustering methods, e.g.,
+20
+
+T-Phenotype
+
+K-means, with dimension reduction using deep learning technique (Xie et al., 2016; Baytas et al., 2017). With different temporal patterns encoded in a low-dimension representation space, K-means clustering is applied to discover clusters that represent various temporal feature interactions in input time-series data. In the experiment, we use a modified version of DCN (Yang et al., 2017) as the SEQ2SEQ baseline.
+AC-TPC. AC-TPC (Lee and van der Schaar, 2020) is one of the state-of-the-art temporal clustering approach that discovers outcome-oriented clusters. AC-TPC learns a cluster assignment policy in the latent space based on an encoder network. The cluster assignment policy is trained with the actor-critic loss from reinforcement learning to find the optimal clusters that represent typical label distributions learned by a predictor network. Similar to KM-E2P(y), there is no guarantee on the association between temporal patterns and clusters discovered by AC-TPC.
+
+D.3 Training Procedure of T-Phenotype
+To fit the model of T-Phenotype on a dataset, the Laplace encoder for each trajectory dimension is firstly pre-trained based on (5) calculated at each time step. Then, we fit the predictor fL with observed patient outcomes y. Finally, the temporal clusters are discovered via graph-constrained K-means algorithm C.1 based on the output from the predictor. Latent embeddings from the Laplace encoder has a clear mathematical meaning. Thus, we freeze the pre-trained Laplace encoder to be isolated from gradients due to outcome predictions. Joint optimization of the encoder and predictor may lead to slower convergence and lower performance as shown in Table 2 and Table 3 with "T-Phenotype (J)" as the ablation study.
+
+D.4 Performance Metrics
+
+Prediction Performance. Area under the curve of receiving-operator characteristic (AUROC) and area under the curve of precision-recall (AUPRC) are used to assess the prognostic value of the discovered clusters on predicting the target label y. For non-binary (category larger than 2) labels, these scores are calculated individually for each category and averaged over the entire categories.
+
+Clustering Performance. For synthetic data, we evaluate the clustering performance in terms of the purity score (Lee
+
+and van der Schaar, 2020), adjusted Rand index (RAND) (Steinley, 2004), and normalized mutual information (NMI)
+
+(Vinh et al., 2009) as the ground-truth cluster label is available. For the real-world dataset, there is no ground-truth
+
+of cluster label. In such a case, the Silhouette coefficient (Rousseeuw, 1987) is commonly used as a measure of
+
+cluster consistency by assessing the homogeneity within each cluster and heterogeneity across different clusters. More
+
+specifically, the traditional Silhouette index assumes convex clusters and uses the average intra-cluster distance (a) and
+
+inter-cluster
+
+distance
+
+(b)
+
+to
+
+evaluate
+
+the
+
+consistency
+
+between
+
+cluster
+
+assignment
+
+and
+
+pattern
+
+distribution
+
+as
+
+s
+
+=
+
+|b-a| max(a,b)
+
+.
+
+Averaging s over all samples gives the Silhouette index S.
+
+In this paper, the clusters are identified via predictive temporal patterns and are not necessarily in convex shapes. To better reflect our new notion of clusters, we instead use an m-nearest neighbor version of Silhouette index, i.e., Sm.
+Specifically, suppose there are K clusters C = {C1, C2, . . . , CK }. Given a time-series X in cluster Ck, we only consider its m nearest samples in the corresponding cluster when calculating intra- and inter-cluster distances am and bm as given below:
+
+am =
+
+1
+
+X -X
+
+|Nm(X, Ck)| X Nm(X,Ck)
+
+2 2
+
+,
+
+bm = min
+
+1
+
+X -X
+
+i=k |Nm(X, Ci)| X Nm(X,Ci)
+
+22,
+
+(25)
+
+where Nm(X, Ck) indicates the set of m nearest neighbors of X in cluster Ck. Then, the clustering consistency in our
+
+variant
+
+Silhouette
+
+index
+
+is
+
+calculated
+
+as
+
+sm
+
+=
+
+|bm -am | max(am ,bm
+
+)
+
+.
+
+The
+
+average
+
+score
+
+Sm
+
+of
+
+all
+
+samples
+
+is
+
+used
+
+to
+
+measure
+
+the
+
+overall clustering consistency. Note that when m  maxCkC |Ck|, the variant Sm is identical to the original Silhouette index, i.e., Sm = S.
+
+Focusing on m closest samples allows us to effectively evaluate pattern consistency in non-convex and irregularly
+
+shaped clusters. Nonetheless, when multiple temporal patterns are put into the same cluster, Sm may still generate a
+
+high score due to the focus on local similarity. To address this issue, we use another connectivity-based metric P m to
+
+evaluate the purity of a cluster in terms of temporal patterns. Consider a cluster Ck, a connectivity graph over time-series
+
+in Ck can be derived via m-nearest neighbor discovery. We use the count pk of connected subgraphs to estimate the
+
+number of It is clear
+
+temporal pattern included in cluster Ck and calculate the temporal pattern that P m = 1 when m is sufficiently large and each cluster only contains
+
+purity
+
+via
+
+Pm
+
+=
+
+1 K
+
+Ck C
+
+1 pk
+
+.
+
+a single temporal pattern, and
+
+Pm
+
+=
+
+1 K
+
+Ck C
+
+1 |Ck |
+
+when
+
+m
+
+=
+
+0.
+
+21
+
+T-Phenotype
+
+To get an overall assessment of cluster consistency, we normalize Sm into [0, 1] and calculate the summary metric AUSIL as the area under the curve of Sm verses P m for m = 1, 2, . . . , M, M  N. For the evaluation of phenotype
+discovery, we combine the prediction accuracy (AUROC and AUPRC) and cluster consistency (AUSIL) into two
+composite metrics HROC and HPRC. Similar to the F1-score in classification, these composite metrics are defined respectively as
+
+AUROC · AUSIL
+
+AUPRC · AUSIL
+
+HROC
+
+2
+
+,
+
+AUROC + AUSIL
+
+HPRC
+
+2
+
+.
+
+AUPRC + AUSIL
+
+(26)
+
+E HYPERPARAMETER SELECTION
+In the experiment, T-Phenotype, KM-E2P(y), KM-E2P(z) are implemented with PyTorch and are trained with learning rate of 0.1 in 50 epochs. AdamW optimizer is used to tune the network parameters. The K-means clustering in KM-E2P(y), KM-E2P(z) and KM-DTW is performed with K-means++ initialization based on implementation in PyClustering.7 The baselines of AC-TPC and SEQ2SEQ are implemented in TensorFlow. They are trained with Adam optimizer with training epochs set to 200 due to different learning rates in their implementation.
+We perform hyperparameter selection on each dataset via 3-fold cross-validation. For T-Phenotype, the best hyperparameters of the Laplace encoders are searched to minimize the average reconstruction error over all temporal dimensions. For each real-world dataset, the best number of clusters K is searched via maximizing the composite metric HPRC of T-Phenotype. The selected best cluster number K is used for all baselines on the same dataset. For baselines of KM-E2P(y) and KM-E2P(z), the hyperparameters for each dataset are search to maximize HPRC (or purity score on the synthetic dataset) given the selected cluster number K. The hyperparameters of AC-TPC and SEQ2SEQ are set to be the same with the original implementation in (Lee and van der Schaar, 2020) (dropout layers are disabled to ensure reproducibility). The hyperparameter space considered in our experiment is discussed as follows.
+
+E.1 Hyperparameter Selection of T-Phenotype
+Laplace Encoder. In the experiment, each Laplace encoder fL in T-Phenotype contains a 1-layer GRU and a 1-layer MLP with 10 hidden units in each layer. Given a time-series input, each Laplace encoder generates an embedding with n = 4 poles and maximum degree of d = 1. As mentioned earlier, coefficient 2 for regularization term ldistinct is set to 0.01 throughout the experiment. The rest hyperparameters are searched in the parameter space as follows.
+· Coefficient for pole separation loss lsep:   {1.0, 10.0}. · Coefficient loss lreal: 1  {0.1, 1.0}. · Threshold for pole sorting and the separation loss: pole  {1.0, 2.0}.
+To address the complex temporal patterns in the ICU dataset, the maximum degree of poles d is also added to the search space, and the range of d  {1, 2} is considered. The best hyperparameter for Laplace encoder on the three datasets are given as follows.
+· Synthetic dataset:  = 1.0, 1 = 0.1, pole = 1.0. · ADNI dataset:  = 1.0, 1 = 0.1, pole = 2.0. · ICU dataset:  = 1.0, 1 = 0.1, pole = 2.0, d = 2.
+Predictor. The predictor fP is composed of a 3-layer MLP with 10 hidden units in each layer. Cluster Number K. The best number of K for each dataset is selected based on the optimal Laplace encoder and predictor structures selected above. We use the ground truth cluster number K = 3 for the synthetic dataset. For the two real-world datasets, the cluster number is searched among K  {2, 3, 4, 5} to maximize the composite clustering performance HPRC. The optimal cluster number selection result is given below.
+· Synthetic dataset: K = 3 (we directly use the ground truth). · ADNI dataset: K = 4. · ICU dataset: K = 3.
+7https://pyclustering.github.io/
+
+22
+
+T-Phenotype
+
+E.2 Hyperparameter Selection of Baselines
+KM-E2P(y). The KM-E2P(y) model includes a 1-layer GRU network to extract temporal features from input timeseries. A 2-layer MLP is stacked on top of the GRU network to form an encoder. Given the encoder output, another 2-layer MLP is used to predict the categorical label y. All layers in the GRU and MLP share the same number h of hidden units. Hyperparameters of h  ×{5, 10, 20} is searched in each dataset basedd on the corresponding K determined above. By maximizing the composite metric HPRC or purity score, the hyperparameter selection result is obtained as follows.
+· Synthetic dataset: h = 20.
+· ADNI dataset: h = 20.
+· ICU dataset: h = 20.
+KM-E2P(z). Similar to KM-E2P(y), the KM-E2P(z) model is composed of a encoder with 2-layer MLP on top of a 1-layer GRU network to extract temporal features from input time-series. The encoder outputs a r-dimension latent vector, which is then used by a 2-layer MLP-based predictor for label prediction. All layers in the GRU and MLP share the same number h of hidden units. Given the best cluster numbers of K found by T-Phenotype, on each dataset, the optimal combination of h and r are search in the space of (h, r)  {10, 20} × {5, 10, 20} to maximize the composite metric HPRC or purity score when ground truth cluster label is available. The hyperparameter selection result is given as follows.
+· Synthetic dataset: h = 10, r = 10.
+· ADNI dataset: h = 10, r = 20.
+· ICU dataset: h = 20, r = 10.
+KM-L. The baseline KM-L simply shares hyperparameters with T-Phenotype for its Laplace encoders on each dataset.
+
+F COMPLETE BENCHMARK RESULT
+The complete benchmark result on synthetic dataset is shown in Table F.1. T-Phenotype has significantly better clustering performance (purity score, adjusted Rand index, normalized mutual information) over all baselines on the synthetic data. In the meantime, the advantage of T-Phenotype over other baselines (except for AC-TPC) is clearly demonstrated via the proposed phenotype discovery performance metrics of HROC and HPRC. An extra baseline of KM-Laplacian (K-means on graph Laplacian calculated via dynamic time warping) is included in Table F.1 for reference. We note that this method has two major drawbacks: 1) there is not a stable and consistent representation space for cluster assignment for new samples; and 2) the distance matrix computation complexity in dynamic time warping could be extremely high, which makes this baseline infeasible for the two real-world datasets.
+
+Table F.1: Complete Benchmark Result on the Synthetic Dataset.
+
+METHOD
+KM-E2P(y) KM-E2P(z) KM-DTW KM-Laplacian KM-L SEQ2SEQ AC-TPC
+T-Phenotype (J) T-Phenotype
+
+AUROC
+0.973±0.014 0.963±0.012 0.722±0.033 0.736±0.024 0.646±0.030 0.507±0.028 0.966±0.012
+0.967±0.020 0.975±0.013
+
+AUPRC
+0.962±0.019 0.948±0.011 0.649±0.028 0.663±0.017 0.593±0.027 0.505±0.014 0.952±0.017
+0.954±0.025 0.960±0.024
+
+PURITY
+0.663±0.019 0.677±0.029 0.469±0.017 0.490±0.021 0.687±0.033 0.378±0.008 0.659±0.020
+0.655±0.021 0.965±0.018
+
+RAND
+0.477±0.033 0.418±0.024 0.068±0.021 0.086±0.011 0.395±0.058 -0.003±0.003 0.487±0.035
+0.440±0.051 0.902±0.048 
+
+Best performance is highlighted in bold. Symbol  indicates p-value < 0.01
+
+NMI
+0.569±0.045 0.485±0.047 0.077±0.022 0.094±0.010 0.447±0.059 0.005±0.003 0.596±0.043
+0.543±0.064 0.875±0.050
+
+HROC
+0.846±0.012 0.879±0.011 0.787±0.020 0.797±0.016 0.735±0.020 0.630±0.022 0.931±0.011
+0.845±0.064 0.927±0.010
+
+HPRC
+0.842±0.010 0.873±0.009 0.742±0.019 0.752±0.013 0.700±0.017 0.628±0.011 0.925±0.014
+0.840±0.064 0.920±0.014
+
+The complete benchmark result on two real-world datasets is provided in Table F.2. T-Phenotype in general has the best (or second best) phenotype discovery performance (HROC and HPRC) while achieving high accuracy in outcome prediction (AUROC and AUPRC), which demonstrates the prognostic value of the phenotypes discovered by T-Phenotype.
+
+23
+
+T-Phenotype
+
+Table F.2: Complete Benchmark Result on Two Real-world Datasets.
+
+ADNI
+
+METHOD
+KM-E2P(y) KM-E2P(z) KM-DTW KM-L SEQ2SEQ AC-TPC
+T-Phenotype (J) T-Phenotype
+KM-E2P(y) KM-E2P(z) KM-DTW KM-L SEQ2SEQ AC-TPC
+T-Phenotype (J) T-Phenotype
+
+AUROC
+0.893±0.005 0.884±0.012 0.743±0.013 0.697±0.029 0.775±0.023 0.861±0.012
+0.867±0.020 0.891±0.005
+0.697±0.014 0.677±0.030 0.539±0.030 0.577±0.019 0.592±0.024 0.660±0.008
+0.697±0.025 0.681±0.017
+
+AUPRC
+0.728±0.017 0.711±0.020 0.522±0.020 0.465±0.019 0.550±0.030 0.665±0.020
+0.679±0.040 0.716±0.015
+0.593±0.012 0.579±0.018 0.515±0.011 0.532±0.009 0.539±0.012 0.573±0.003
+0.595±0.017 0.585±0.015
+
+AUSIL
+0.677±0.019 0.672±0.028 0.762±0.049 0.820±0.022 0.772±0.014 0.726±0.020
+0.690±0.007 0.711±0.023
+0.668±0.046 0.698±0.042 0.786±0.072 0.834±0.024 0.830±0.016 0.735±0.024
+0.691±0.091 0.726±0.015
+
+HROC
+0.770±0.013 0.763±0.018 0.752±0.027 0.753±0.019 0.773±0.012 0.788±0.014
+0.768±0.011 0.791±0.013
+0.682±0.029 0.686±0.031 0.636±0.023 0.682±0.009 0.690±0.011 0.695±0.014
+0.691±0.056 0.703±0.007
+
+HPRC
+0.701±0.012 0.690±0.013 0.618±0.021 0.593±0.018 0.642±0.022 0.694±0.013
+0.684±0.021 0.713±0.009
+0.628±0.025 0.633±0.024 0.621±0.021 0.649±0.004 0.653±0.004 0.644±0.011
+0.636±0.048 0.648±0.008
+
+ICU
+
+Best performance is highlighted in bold. Symbol  indicates p-value < 0.01
+
+G FURTHER ANALYSIS ON PHENOTYPE DISCOVERY
+Comparison of Cluster Assignments on ADNI Dataset. On the ADNI dataset, typical phenotypes from KME2P(y), SEQ2SEQ, AC-TPC and T-Phenotype are compared in Figure G.1. Due to the model design, KM-E2P(y) only focuses on the predicted outcome distribution when discovering phenotypes (as shown in Figure G.1a). Compared to T-Phenotype, KM-E2P(y) wrongly splits normal patients with the same temporal pattern (stable CDRSB trajectory) into two clusters under K = 4. Additionally, KM-E2P(y) fails to discover the two subtypes of patients with high-risk of MCI as illustrated in phenotype 2 and 3 in Figure G.1d. While the SEQ2SEQ method is able to capture temporal patterns exhibit in patient trajectories, it is incapable to properly associate these temporal patterns with patient outcomes. For instance, SEQ2SEQ wrongly splits high-risk patients with increasing CDRSB scores over time into two different subgroups with similar outcome distributions.
+As discussed in the main manuscript, AC-TPC aims at discovering the minimum number of clusters that can sufficiently represent the outcome distribution. Thus, it only identifies three phenotypes under K = 4 and combines the two subtypes (Phenotype 2 and 3 in Figure G.1d) of MCI patients into the same cluster. In comparison, T-Phenotype discovers phenotypes based on both predicted outcome and the associated predictive temporal patterns. The two subgroups of patients with expected diagnosis of MCI are correctly identified by T-Phenotype, which demonstrates the prognostic value of our method over the considered baselines.
+Phenotypes on ICU Mortality. On the ICU dataset, T-Phenotype is applied to identify phenotypes based on the patient's age, gender, GCS score and the fraction of PaCO2. Three major phenotypes are discovered by T-Phenotype, and the GCS trajectories of test samples in each subgroup are illustrated in Figure G.2. Based on the stability of their GCS trajectory, patients in each phenotype are plotted separately in two subfigures. The GCS score is predictive of patient mortality after ICU discharge (Leitgeb et al., 2013) and shows good discrimination accuracy on high- and low-risk patients admitted to ICU (Bastos et al., 1993). The predicted mortality rates in phenotypes 1, 2 and 3 are 15.3%, 3.2% and 32.4%, respectively. The GCS levels of patients in the three subgroups manifest a clear association to their corresponding mortality risks. For instance, many patients of phenotype 3 had lower GCS score (below 10) than the two other subgroups. In contrast, while having higher GCS levels, many patients in Phenotype 1 and 2 had an increase pattern (as shown in Figure G.2b) in their recent GCS measurements, which potentially contributes to their decreased risks of death. In the meantime, age is reported to be another risk factor for ICU mortality (Blot et al., 2009; Haas et al., 2017). With the average patient age of 63.0 (IQR: 53.0 ­ 76.0), 43.0 (IQR: 29.8 ­ 55.3) and 70.6 (IQR: 62.0 ­ 82.0) in the three identified subgroups, phenotype 1 and 2 are clearly separated.8
+
+8Interquartile range (IQR) is the range defined by 25% and 75% quantiles of a variable. 24
+
+T-Phenotype
+(a) Four phenotypes from KM-E2P(y). (b) Four phenotypes from SEQ2SEQ. (c) Three phenotypes from AC-TPC. (d) Four phenotypes from T-Phenotype. Figure G.1: Comparison of Phenotypes Discovered on the ADNI Dataset.
+25
+
+T-Phenotype
+(a) Patients with stable (std < 1) GCS trajectories.
+(b) Patients with less stable (std  1) GCS trajectories. Figure G.2: Three Phenotypes Discovered by T-Phenotype on ICU Dataset. The GCS trajectory of patients with different phenotypes are illustrated in the considered time period. All trajectories start at t = 0 and are smoothed with a rolling window of size 5.
+26
+
+

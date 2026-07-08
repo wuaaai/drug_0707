@@ -1,0 +1,908 @@
+Knowledge-Based Systems
+SynGSA-Rec: Synergy-Aware Medication Recommendation with Graph-Semantic Alignment
+--Manuscript Draft--
+
+Manuscript Number: Article Type: Keywords:
+Corresponding Author: First Author: Order of Authors:
+Abstract:
+
+KNOSYS-D-26-04446
+Full Length Article
+Electronic health record Medication Recommendation Contrastive Learning Therapeutic Synergy
+Shunpan Liang, ph.D Yanshan University Qinhuangdao, CHINA
+Zhichen Zhou
+Zhichen Zhou
+Shi Mu
+GuanYong Wu
+Shunpan Liang, ph.D
+With the deepening integration of artiffcial intelligence in healthcare, Combinatorial Medication Recommendation (CMR) demonstrates immense potential value as a critical task for clinical decision support. However, existing methods relying on standardized codes (e.g., ICD, ATC) often neglect valuable uncoded data, particularly infusion records, leading to a failure in capturing the Therapeutic Synergy between infusion and prescription medications. Furthermore, current graph models often treat diverse clinical relationships as homogeneous structures, failing to synthesize distinct relational views or align topological structures with intrinsic semantic deffnitions. To address these limitations, we propose a synergy-aware recommendation framework named SynGSA-Rec. Our framework introduces the use of textual descriptions to explicitly model latent Therapeutic Synergy, overcoming the inherent limitations of code-dependent methods by unlocking infusion records. We mine textual descriptions of both infusion and prescription medications to explicitly encode the therapeutic logic bridging immediate intervention and stable maintenance. Additionally, we design a novel two-stage contrastive learning mechanism to recalibrate entity representations. Speciffcally, we construct multiple clinical subgraphs to decouple interactions into pairwise relational views. In the ffrst stage, we fuse these views to generate uniffed graph embeddings. Crucially, in the second stage, we align these embeddings with textual semantics. Finally, we employ temporal aggregation to construct a comprehensive patient proffle, serving as a robust basis for generating optimal medication combinations. Experiments on the MIMIC-III and MIMIC-IV datasets demonstrate that our method achieves signiffcant improvements over state-of-the-art baselines.
+
+Powered by Editorial Manager® and ProduXion Manager® from Aries Systems Corporation
+
+Author Agreement
+Author Agreement
+Submission of work requires that the piece to be reviewed has not been previously published. Upon acceptance, the Author assigns to the Knowledge-Based Systems the right to publish and distribute the manuscript in part or in its entirety. The Author's name will always be included with the publication of the manuscript.
+The Author has the following nonexclusive rights: (1) to use the manuscript in the Author's teaching activities; (2) to publish the manuscript, or permit its publication, as part of any book the Author may write; (3) to include the manuscript in the Author's own personal or departmental (but not institutional) database or on-line site; and (4) to license reprints of the manuscript to third persons for educational photocopying. The Author also agrees to properly credit the Knowledge-Based Systems as the original place of publication.
+The Author hereby grants the Knowledge-Based Systems full and exclusive rights to the manuscript, all revisions, and the full copyright. The Knowledge-Based Systems rights include but are not limited to the following: (1) to reproduce, publish, sell, and distribute copies of the manuscript, selections of the manuscript, and translations and other derivative works based upon the manuscript, in print, audio-visual, electronic, or by any and all media now or hereafter known or devised; (2) to license reprints of the manuscript to third persons for educational photocopying; (3) to license others to create abstracts of the manuscript and to index the manuscript; (4) to license secondary publishers to reproduce the manuscript in print, microform, or any computer-readable form, including electronic on-line databases; and (5) to license the manuscript for document delivery. These exclusive rights run the full term of the copyright, and all renewals and extensions thereof.
+I hereby accept the terms of the above Author Agreement.
+
+Signed by all authors as follows:
+
+Cover Letter
+March 3, 2026
+Editor-in-Chief Knowledge-Based Systems Elsevier
+Dear Editor-in-Chief,
+We are pleased to submit our manuscript entitled "SynGSA-Rec: Synergy-Aware Medication Recommendation with Graph-Semantic Alignment" for consideration for publication in Knowledge-Based Systems. This manuscript is an original contribution that has not been published elsewhere and is not currently under consideration by any other journal.
+Our work addresses a critical limitation in current medication recommendation systems: the neglect of valuable uncoded clinical data, particularly infusion records in ICU settings. Existing deep learning methods heavily rely on standardized codes (ICD, ATC) and overlook the therapeutic synergy between immediate intervention (infusion medications) and stable maintenance (prescription medications). This work makes three significant contributions to the field:
+1. Novel Therapeutic Synergy Modeling: We are the first to explicitly model the therapeutic synergy between infusion and prescription medications by leveraging textual descriptions, thereby incorporating a vital yet previously overlooked dimension of clinical logic in Electronic Health Records (EHR).
+2. Two-Stage Contrastive Learning Mechanism: We propose a novel framework that fuses complementary relational views via subgraph contrasting and uniquely aligns the resulting graph embeddings with their textual semantics, ensuring representations are both structurally comprehensive and therapeutically coherent.
+3. Empirical Validation: Extensive experiments on large-scale public medical datasets (MIMIC-III and MIMIC-IV) demonstrate that SynGSA-Rec achieves significant improvements over state-of-the-art baseline models across multiple key evaluation metrics, including Jaccard similarity, F1-score, and PR-AUC.
+We believe our work is particularly well-suited for Knowledge-Based Systems because it integrates knowledge representation (textual medical descriptions), graph neural networks, and contrastive learning to address real-world clinical decision support challenges. Our framework demonstrates how bridging structured and unstructured medical knowledge can enhance AI-driven healthcare applications, aligning perfectly with the journal's focus on intelligent systems that leverage knowledge for practical problem-solving.
+We confirm that this manuscript has no conflicts of interest and complies with ethical standards. The study uses publicly available de-identified MIMIC datasets with appropriate citations and ethical clearances.
+
+We appreciate your consideration of our manuscript and look forward to your editorial decision. We are happy to provide any additional information or clarification as needed.
+Sincerely,
+Shunpan Liang, Ph.D. (Corresponding Author) School of Artificial Intelligence (School of Software) Yanshan University Qinhuangdao, 066004, China Email: liangshunpan@ysu.edu.cn
+On behalf of all co-authors: Zhichen Zhou, Shi Mu, Guanyong Wu
+
+Click here to view linked References
+Highlights
+SynGSA-Rec: Synergy-Aware Medication Recommendation with Graph-Semantic Alignment
+Zhichen Zhou,Shi Mu,Guanyong Wu,Shunpan Liang
+· We are the first to explicitly model the Therapeutic Synergy between infusion and prescription medications by leveraging textual descriptions, thereby incorporating a vital yet previously overlooked dimension of clinical logic in EHR.
+· We propose a novel two-stage contrastive learning mechanism. It fuses complementary relational views via subgraph contrasting and uniquely aligns the resulting graph embeddings with their textual semantics.
+· Extensive experiments on large-scale public medical datasets (MIMIC-III and MIMIC-IV) demonstrate that SynGSARec achieves significant improvements over state-of-the-art baseline models across multiple key evaluation metrics, verifying the effectiveness of our synergy-guided approach.
+
+SynGSA-Rec: Synergy-Aware Medication Recommendation with Graph-Semantic Alignment
+Zhichen Zhoua, Shi Mua, Guanyong Wua and Shunpan Lianga,
+aSchool of Artificial Intelligence(School of Software), Yanshan University, Qinhuangdao, 066004, China
+
+ARTICLE INFO
+Keywords: Electronic health record Medication Recommendation Contrastive Learning Therapeutic Synergy
+
+ABSTRACT
+With the deepening integration of artificial intelligence in healthcare, Combinatorial Medication Recommendation (CMR) demonstrates immense potential value as a critical task for clinical decision support. However, existing methods relying on standardized codes (e.g., ICD, ATC) often neglect valuable uncoded data, particularly infusion records, leading to a failure in capturing the Therapeutic Synergy between infusion and prescription medications. Furthermore, current graph models often treat diverse clinical relationships as homogeneous structures, failing to synthesize distinct relational views or align topological structures with intrinsic semantic definitions. To address these limitations, we propose a synergy-aware recommendation framework named SynGSA-Rec. Our framework introduces the use of textual descriptions to explicitly model latent Therapeutic Synergy, overcoming the inherent limitations of code-dependent methods by unlocking infusion records. We mine textual descriptions of both infusion and prescription medications to explicitly encode the therapeutic logic bridging immediate intervention and stable maintenance. Additionally, we design a novel two-stage contrastive learning mechanism to recalibrate entity representations. Specifically, we construct multiple clinical subgraphs to decouple interactions into pairwise relational views. In the first stage, we fuse these views to generate unified graph embeddings. Crucially, in the second stage, we align these embeddings with textual semantics. Finally, we employ temporal aggregation to construct a comprehensive patient profile, serving as a robust basis for generating optimal medication combinations. Experiments on the MIMIC-III and MIMIC-IV datasets demonstrate that our method achieves significant improvements over state-of-the-art baselines.
+
+1. Introduction
+The widespread adoption of Electronic Health Records (EHR) has generated massive amounts of clinical data, serving as the foundation for intelligent applications. Among these, Combinatorial Medication Recommendation (CMR), a critical clinical decision support task aiming to provide effective medication combinations for patients with complex health conditions, has received increasing attention in recent years (Ali et al., 2023; Mishra and Shridevi, 2024; Liu et al., 2024a).
+Most existing deep learning models for CMR typically rely on data in EHR that have clear, standardized coding systems--such as diseases (ICD_CM codes), procedures (ICD_PCS codes), and prescription medications (ATC/NDC codes) (Wu et al., 2022). These methods often integrate such structured clinical records with external knowledge like medication chemical structures(Yang et al. 2021b; Yang et al. 2023) to improve recommendation performance. While effective, this heavy reliance on standardized codes leads to a critical limitation: valuable clinical data lacking such codes are often discarded. A prime example is infusion medications in ICU settings, which are frequently recorded as unstructured text or non-standardized item IDs in databases like MIMIC (Johnson et al., 2016, 2023), and are thus largely ignored by current models.
+However, ignoring infusion medications means missing a crucial part of the clinical picture: Immediate Intervention.
+Corresponding author. zhouzhichen@stumail.ysu.edu.cn (Z. Zhou); shimu@ysu.edu.cn (S.
+Mu); guanyongwu@ysu.edu.cn (G. Wu); liangshunpan@ysu.edu.cn (S. Liang)
+
+Figure 1: The core motivation and mechanism of SynGSARec. We highlight the limitation of existing models in ignoring infusion-prescription synergy and the gap between graph structures and clinical roles. SynGSA-Rec reconstructs this synergy through text-based semantic modeling and aligns cross-modal representations via contrastive learning to enhance the predictive power of patient embeddings.
+In real-world practice, especially in the ICU, treatment is a dynamic, staged process transitioning from immediate intervention (often via infusion) to stable maintenance (Devlin et al., 2018)(via prescription). There exists a profound Therapeutic Synergy between these two stages, which collectively form a coherent therapeutic strategy.
+Consider a patient with a malignant brain tumor accompanied by pain. The patient's infusion records include Acetaminophen-IV, used for rapid relief of moderate to severe pain. Meanwhile, the prescription records include oral Acetaminophen and the compound OxyCODONE-Acetaminophen, used for long-term pain management. This treatment regimen presents clear clinical logic: acute pain
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 1 of 16
+
+SynGSA-Rec
+
+symptoms are first rapidly alleviated via intravenous Acetaminophen, followed by a transition to oral compound formulations for stable maintenance. This example illustrates the logical connection existing between infusion and prescription medications. Existing methods typically do not use infusion data due to the lack of standard codes, and thus often overlook this clinical logic chain. We argue that leveraging textual descriptions (Bai et al., 2025) to capture the latent synergy between infusion and prescription medications offers a promising avenue to enhance the clinical logicality of CMR. The core motivation and simplified mechanism of this approach are illustrated in Figure 1, which highlights how we bridge the gap between unstructured infusion records and structured prescriptions through semantic alignment to enhance the predictive power of patient embeddings.
+To address this limit, we propose SynGSA-Rec (SynergyAware Medication Recommendation with Graph-Semantic Alignment), a progressive framework designed to capture and leverage this therapeutic synergy. First, SynGSA-Rec explicitly models the synergistic patterns between infusion and prescription medications by mining their textual descriptions, generating synergy-aware medication representations. Building upon this foundation, we further introduce a novel two-stage contrastive learning mechanism (Li et al., 2023; An et al., 2023). Specifically, we construct multiple clinical subgraphs to decouple complex interactions into pairwise relational views (e.g., disease-medication). In the first stage, these views undergo contrasting to fuse into unified graph embeddings. Crucially, in the second stage, we apply graph-text contrasting specifically to align these graph embeddings with textual semantics. For medications, we uniquely enhance this alignment by dynamically enriching their textual semantic view with the therapeutic synergy patterns learned from our first module. This synergy-aware alignment ensures that the final medication representations are not only structurally comprehensive but also therapeutically coherent with the captured synergistic patterns. The main contributions of this paper can be summarized as follows:
+· We are the first to explicitly model the Therapeutic Synergy between infusion and prescription medications by leveraging textual descriptions, thereby incorporating a vital yet previously overlooked dimension of clinical logic in EHR.
+· We propose a novel two-stage contrastive learning mechanism. It fuses complementary relational views via subgraph contrasting and uniquely aligns the resulting graph embeddings with their textual semantics.
+· Extensive experiments on large-scale public medical datasets demonstrate that SynGSA-Rec achieves significant improvements over state-of-the-art baseline models across multiple key evaluation metrics, verifying the effectiveness of our synergy-guided approach.
+
+2. Related work
+In this section, we review related work in three key areas: code-driven medication recommendation, text-enhanced clinical representation, and cross-view alignment via contrastive learning.
+2.1. Code-Driven Medication Recommendation The field of medication recommendation has evolved
+from processing simple sequential patterns to modeling complex entity interactions, yet it remains fundamentally anchored in standardized clinical coding systems (e.g., ICD, ATC). Early approaches primarily focused on longitudinal patient history, utilizing Recurrent Neural Networks or Gated Recurrent Units to capture temporal dependencies in diseases and treatment sequences (Choi et al., 2016; Zhang et al., 2017). To better capture the structural relationships between medical entities, subsequent studies introduced Graph Neural Networks (GNNs) to model the co-occurrence of diseases and medications as heterogeneous graphs (Shang et al., 2019; Zheng et al., 2021; Zhang et al., 2021). Recently, to bridge the semantic gap in sparse data, state-ofthe-art methods have integrated external knowledge into these graph structures. For instance, (Yang et al., 2021b) and (Yang et al., 2023) incorporate molecular structures (2D graphs or substructures) to explicitly model drug-drug interactions (DDI), while methods like (Yang et al., 2021a) leverage dynamic changes in patient status. Despite these advancements, these methods share a critical limitation: a heavy reliance on structured, standardized codes. This codedependency causes them to overlook valuable unstructured clinical data, most notably infusion mdications in ICU settings, which often lack standard coding. Consequently, existing models fail to capture the crucial therapeutic synergy between infusion medications and prescription medications, leading to a break in the logical chain of clinical treatment (Zhang et al., 2025).
+2.2. Text-Enhanced Clinical Representation Recognizing the information loss inherent in structured
+codes, another line of research explores leveraging the rich unstructured text in Electronic Health Records (EHR). With the advent of Pre-trained Language Models (PLMs) such as BERT and its clinical variants (e.g., (Huang et al., 2020; Lee et al., 2020; Gu et al., 2021)), researchers have begun to utilize textual descriptions to enhance medical entity representations. Current approaches typically treat text as a supplementary feature source, encoding descriptions of diseases or medications into semantic vectors that are concatenated with code-based embeddings to enrich representation quality (Kim et al., 2025; Móstoles et al., 2024). Other works frame recommendation as a matching problem, measuring the semantic compatibility between a patient's textual clinical notes and medication documents. (Ling et al., 2014). However, in these frameworks, text is generally utilized as a static source of auxiliary information or for simple semantic matching. Existing methods neither leverage text to uncover clinical logic within underutilized data
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 2 of 16
+
+SynGSA-Rec
+
+sources such as infusion records, nor do they deeply integrate textual semantics with the topological structure of clinical graphs. This results in a misalignment where the intrinsic therapeutic semantics of medical entities are decoupled from its topological relational context within the specific clinical visit.
+2.3. Cross-View Alignment via Contrastive Learning
+Contrastive Learning has emerged as a powerful paradigm for aligning representations across different views or modalities, achieving remarkable success in fields like Computer Vision (Radford et al., 2021)and molecular representation learning (aligning 2D and 3D molecular graphs) (Stärk et al., 2022; Zhu et al., 2022). In the medical domain, recent works have applied contrastive learning to align patient EHR views with medical knowledge graphs or to harmonize medical imaging with textual reports (Zhang et al., 2022; Wang et al., 2022; Wen et al., 2025). The core intuition is to maximize the mutual information between different views of the same entity to learn a more robust and distinct representation. Inspired by BiMoRec's (Mu et al., 2025) use of contrastive learning to fuse molecular modalities,similarly, the NLA-MMR framework (Tan et al., 2024) demonstrates the efficacy of using natural language to assist multi-modal alignment in medication recommendation, further validating the trend of integrating textual semantics. Building on these insights, we identify a unique opportunity in medication recommendation: the alignment of an entity's topological context within the clinical graph with its intrinsic textual semantics. However, standard cross view alignment is insufficient for complex clinical scenarios. Unlike previous works, our proposed SynGSA-Rec introduces a novel graphsemantic alignment mechanism that specifically targets the latent Therapeutic Synergy. By mining the textual descriptions of infusion and prescription medications to generate a synergy-aware semantic view, and then contrasting this view with the graph representation, we ensure that the learned representations are not only structurally context-aware but also clinically logically coherent.
+3. Problem Definitions
+3.1. Medical Entity In this study, medical entities primarily include four
+types: diseases, procedures, infusion medications, and prescription medications. The core entity sets are denoted as  = {1, 2, ... },  = {1, 2, ... },  = {1, 2, ... }, and  = {1, 2, ... }. Specifically,  and  correspond to distinct clinical data sources:  represents medication orders derived from Computerized Physician Order Entry records, while  denotes intravenous and fluid input events recorded at the bedside. Textual descriptions for both categories are retrieved from the DrugBank database to facilitate therapeutic synergy modeling (Liu et al., 2024b). Similarly, for diseases  and procedures , their corresponding textual descriptions are obtained by mapping their ICD codes to the
+
+Table 1 Notations and descriptions.
+
+Notations
+
+Descriptions
+
+, (), 
+, , , 
+ () , () () , ()
+ () , (), ()
+ (), (), () ,  ,  ,  ,  ()  () , (), () ,  , 
+, 
+, 
+, , , 
+
+Longitudinal records, visit record at , and target visit index.
+Sets of Diseases, Procedures, Prescription Medications, and Infusion Medications.
+Initial text embeddings for  and  . Synergy-aware semantic matrices with crossmedication context.
+Aggregated synergy vectors and scalar synergy strength.
+Final synergy representation.
+Bipartite subgraphs for inter-entity relations.
+Unified graph embedding.
+Semantic views.
+Final entity-level representation for  Visit-level representations for , ,  Longitudinal representations via temporal GRUs
+Comprehensive patient representation and predicted probability.
+Recommendation loss and auxiliary contrastive loss.
+Fusion/alignment losses and balancing hyperparameters.
+
+official ICD textual definitions. For ease of reading, we list important notations and their explanations in Table 1 of this paper.
+3.2. Input and Output Each patient record is represented as a longitudinal se-
+quence  = {(1), (2), ... , ( )}, where () denotes the clinical information for the -th visit. Structurally, each visit is defined as a tuple () = {(), (), (),  ()}, comprising subsets of diseases, procedures, prescription medications, and infusion medications (i.e., ()  , ()  , ()  , and  ()   ). Formally, the medication recommendation task is defined as follows: Given the patient's historical records {(1), ... , ( -1)} and the entities of the current visit {( ), ( ),  ( )}, the model aims to predict the target prescription combination  ( ).
+
+4. Methods
+4.1. Model Overview To address the limitations of existing models, we pro-
+pose SynGSA-Rec. As illustrated in Figure 2, this framework is designed to explicitly model the therapeutic synergy between infusion and prescription medications. Our framework consists of three main stages:
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 3 of 16
+
+SynGSA-Rec
+
+Figure 2: The overall architecture of SynGSA-Rec. The framework is composed of three primary components: (1) Synergy-Aware Representation Learning Model that models the latent clinical synergy between medications using textual descriptions as a bridge; (2) Two-stage Contrastive Learning Module that aligns graph-based structural embeddings with their semantic counterparts to enrich them with clinical insights; (3) Prediction Module that generate comprehensive patient representations for accurate medication recommendation.
+
+(1) Synergy-Aware Representation Learning Module :
+First, we mine the textual descriptions of infusion and pre-
+scription medications to capture their therapeutic synergy.
+This process generates two key outputs: (a) a synergy-aware
+semantic view  for entity alignment and (b) a synergyaware medication representation s for the final prediction.
+(2) Two Stage Contrastive Learning Module:Next, we
+learn multi-view fused and semantically aligned entity rep-
+resentations. We employ a two-stage contrastive learning
+mechanism that first integrates complementary relational
+views (e.g., fusing the diagnostic context from  with the procedural context from ) to generate comprehensive graph embeddings, and subsequently aligns them with
+textual semantics.
+(3)Prediction Module : Finally, we construct the compre-
+hensive patient representation  by concatenating the longitudinal history vectors ,  ,  with the dynamic
+
+synergy vector  and demographic features. The resulting fused vector is then fed into the prediction layer to generate the final medication recommendation.
+4.2. Synergy-Aware Representation Learning Module
+To explicitly model the therapeutic synergy between infusion and prescription medications, we design a module that learns from historical treatment logic. This process involves two phases: modeling the synergistic context within each visit by mining textual descriptions, and dynamically fusing these historical states to guide the current prediction.
+4.2.1. Synergistic Context Modeling and State Aggregation
+To explicitly model therapeutic synergy bridging immediate intervention and stable maintenance, we leverage the
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 4 of 16
+
+SynGSA-Rec
+
+textual descriptions of medications to reconstruct historical
+treatment logic. Semantic Initialization. We begin by map-
+ping the discrete medication to their rich semantic represen-
+tations. For a specific visit , we retrieve the textual descriptions for prescription medications () and infusion medications  (). A shared pre-trained Text Encoder  (e.g., PubMedBERT (Gu et al., 2021)) is employed to encode these
+descriptions into initial semantic embeddings, denoted as  () and (), respectively. Entity-Level Interaction. Building upon these semantic foundations, we introduce a cross-
+attention mechanism to capture fine-grained bidirectional
+interactions. This step updates the representation of one
+medication type by actively querying the context of the other.
+Specifically, we calculate the synergy-aware representations of prescription medications  ()  and infusion medications () as follows:
+
+ () 
+
+=
+
+LayerNorm( ()
+
++
+
+Attn(() ,
+
+() ,
+
+()
+
+) )
+
+(1)
+
+()
+
+=
+
+LayerNorm(()
+
++
+
+Attn((),
+
+() ,
+
+()
+
+) )
+
+(2)
+
+Here, Attn(, , ) denotes the Multi-Head Attention mechanism. In the first equation, prescription medications act as Queries , while infusion medications serve as Keys  and Values , effectively injecting immediate intervention context into the prescription representation. The resulting  ()  is designated as the Synergy-Aware Semantic View, which is explicitly utilized for alignment in the subsequent Contrastive Learning module. Visit-Level State Aggregation. Following the entity-level update, we shift our focus to the holistic therapeutic state of the visit. We aggregate the refined entity representations into visit-level vectors via mean-pooling:
+
+() = MeanPool(()  ), () = MeanPool(() ) (3)
+To quantify the logical consistency between the immediate intervention and stable maintenance phases within this visit, we compute the synergy strength:
+
+() = cos(() , ())
+
+(4)
+
+By iteratively performing this calculation, we maintain a sequence of historical synergy states {(() , (), ())}=-11, which serves as the dynamic knowledge source for the
+
+current prediction.
+
+4.2.2. Dynamic Synergy Fusion
+When making recommendations for the current target visit  , the model employs an attention mechanism to capture relevant and high-quality therapeutic precedents from the patient's history. Retrieval of Synergistic Context. First, the model obtains the current infusion medication representation ( ). We then calculate the matching scores between this current vector and all historical infusion vectors {()}=-11 from previous visits. Specifically, the score  for each historical visit is calculated as:
+
+ = cos(( ), ())
+
+(5)
+
+These scores collectively form the score vector    -1.
+To convert these scores into a probability distribution, we
+apply a softmax function with a temperature coefficient , generating the attention weight vector :
+
+ = softmax()
+
+(6)
+
+Reconstruction of Maintenance Prescriptions. Subsequently, we synthesize the Synergy Context Vector . Crucially, we incorporate synergy strength () as a quality indicator. By weighting historical prescription vectors with both their relevance  and their intrinsic therapeutic consistency (), we effectively retrieve and reconstruct the prescriptions for stable maintenance that were historically paired with similar immediate interventions:
+
+ -1
+
+ =    ()   ()
+
+(7)
+
+=1
+
+This formulation ensures that the reconstructed representation relies more heavily on historical visits that not only match the current infusion context but also exhibit strong internal therapeutic logic. The resulting vector  is then explicitly concatenated with the patient's longitudinal profile in the final prediction module.
+
+4.3. Two-Stage Contrastive Learning Module To learn entity representations that integrate multi-view
+structural contexts and align with semantic definitions, we propose a two-stage contrastive learning mechanism. This mechanism first fuses pairwise relational views into a unified graph representation, which is subsequently aligned with the corresponding semantic information to ensure both structural and clinical coherence.
+
+4.3.1. Multi-view Construction and Encoding
+For a specific visit , we decouple the complex interactions among Diseases (), Procedures (), and Prescription Medications () into three bipartite subgraphs: the Disease-Medication Graph (), Disease-Procedure Graph (), and Procedure-Medication Graph (). To ground these entities in clinical semantics, we retrieve textual definitions
+for diseases and procedures from official ICD codes. For
+prescription medications, the semantic views are obtained
+from the preceding synergy-aware representation learning
+module, which captures the therapeutic logic bridging im-
+mediate intervention and stable maintenance.
+To translate these structural and textual inputs into a
+latent space, we utilize a Graph Encoder () and a Text Encoder ( ), respectively. The Graph Encoder, implemented via LightGCN (He et al., 2020), operates on the subgraphs
+to generate graph embeddings. Simultaneously, the Text
+Encoder projects the entity descriptions into semantic em-
+beddings.
+Finally, we define multi-view representations to capture
+the comprehensive characteristics of each entity type. For a disease   (), we generate two graph views,  and , and a semantic view  given by  (). Similarly, for a
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 5 of 16
+
+SynGSA-Rec
+
+procedure   (), we obtain graph views  and  along with the semantic view  given by  (). For a prescription medication   (), the graph views  and  are generated from the subgraphs, while its semantic view  is derived from the synergy-aware matrix  ()  .
+
+4.3.2. Contrastive Alignment Objectives
+
+We train the encoders by minimizing a joint contrastive
+
+loss  =  + , designed to sequentially fuse pairwise relational views and align them with semantics. To
+
+synthesize a unified graph representation, we first fuse the
+
+complementary contexts from the two graph views. Treat-
+
+ing the views of the same entity as a positive pair, we
+
+minimize InfoNCE loss (Chen et al., 2020; Zhao et al.,
+
+2024). Taking medications as an example, we pull the view
+
+from the Disease-Medication Medication graph  closer:
+
+graph
+
+
+
+and
+
+the
+
+Procedure-
+
+(),
+
+=
+
+- log
+
+exp(sim(, ))
+
+
+ ()
+
+exp(sim(,
+
+ ) )
+
+(8)
+
+Upon optimizing this objective, we generate the Unified Graph Embedding  by averaging the aligned views:
+
+
+
+=
+
+1 2
+
+(
+
++ )
+
+(9)
+
+Similar unified graph embeddings  and are computed for diseases and procedures by averaging their respective subgraph views. Subsequently, to bridge the gap between topological structure and intrinsic meaning, we align this unified graph embedding with the entity's semantic view. For medications, this step enforces the graph representation to be consistent with therapeutic synergy logic:
+
+(),
+
+=
+
+-
+
+log
+
+exp(sim(, ))
+
+
+ ()
+
+exp(sim(,
+
+ ))
+
+(10)
+
+Similar losses are computed for diseases and procedures using their semantic views. Finally, the comprehensive entity representation is generated by concatenating the unified graph embedding and the aligned semantic view:
+
+() =   
+
+(11)
+
+These enriched representations () serve as the robust input for the subsequent temporal modeling. Similarly, for dis-
+eases and procedures, the final representations are formed as () =    and () =   . These enriched representations serve as the robust input for the subsequent
+temporal modeling module.
+
+4.3.3. Entity Aggregation and Temporal Modeling After obtaining the aligned intra-visit entity represen-
+tations, we aggregate these granular features to construct the patient's longitudinal historical profile. Intra-Visit Aggregation. First, to capture the general clinical status of a specific visit , we aggregate the representations of all entities within that visit. For prescription medications, we
+
+apply mean pooling over the set of aligned entity vectors to generate the visit-level medication representation () :
+
+() = MeanPool({()    ()})
+
+(12)
+
+Similarly, we aggregate the disease and procedure entities to obtain the visit-level disease representation () and procedure representation (), respectively. Inter-Visit Temporal Modeling. Next, to model the patient's evolutionary trajectory, we feed these visit-level sequences into independent GRU networks. Since the current visit's diagnoses and procedures are known inputs, while the current medications are the prediction targets, we model the full sequence up to  for diseases and procedures, but only up to  -1 for medications:
+
+ = GRU((1), ... , ( ))
+
+(13)
+
+ = GRU ((1), ... , ( ))
+
+(14)
+
+ = GRU( (1), ... ,  ( -1))
+
+(15)
+
+The final hidden states ,  , and  serve as the patient's core longitudinal profiles, representing the historical
+trajectories of their health conditions, interventions, and
+medication regimens, respectively.
+
+4.4. Prediction Module
+The previous modules have generated the core compo-
+nents for a comprehensive patient profile. Specifically, the
+entity aggregation produced the longitudinal history rep-
+resentations ,  , , while the Synergy-Aware Representation Learing Module produced the dynamically fused
+synergy medication representation . To construct the final patient representation , we concatenate these longitudinal vectors with the synergy vector and the demographic
+embeddings for weight  and age :
+
+ =           
+
+(16)
+
+This comprehensive representation  is then fed into a prediction layer , composed of a Multi-Layer Perceptron followed by a Sigmoid activation function. This outputs the multi-label probability vector ( )  [0, 1]||,
+where each dimension corresponds to the predicted proba-
+bility of a candidate medication being recommended for the
+current visit  :
+
+ = (()
+
+(17)
+
+4.5. Training Objective
+Our primary objective is to optimize medication rec-
+ommendation accuracy via the main recommendation loss
+. To better achieve this, SynGSA-Rec employs a joint training strategy that introduces an auxiliary contrastive loss
+. This auxiliary task explicitly learns high-quality, aligned entity representations, which are crucial for enhancing the
+performance of the main task. The total loss function  is
+composed of two parts. Recommendation Loss . We treat the Combinatorial Medication Recommendation (CMR) as
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 6 of 16
+
+SynGSA-Rec
+
+a multi-label classification task. The loss for the  -th visit is defined as:
+
+||
+
+ = -  FL( , ,  , )
+
+(18)
+
+=1
+
+where  , is the ground truth label and  , is the predicted probability for the -th medication. The function FL() represents the standard Focal Loss (Lin et al., 2017). Contrastive Loss ,derived from the two-stage contrastive learning module, this loss ensures that the learned embeddings are both structurally unified and semantically consistent. It is calculated as a weighted sum of the structural and semantic alignment objectives:
+
+ =  + 
+
+(19)
+
+Here,  corresponds to the graph-graph contrastive loss , responsible for fusing complementary structural views into
+a unified graph embedding.  corresponds to the graphtext contrastive loss, responsible for aligning the unified
+graph structure with the semantic view. The hyperparame-
+ters  and  control the relative importance of structural fusion and semantic alignment, respectively. Finally, we use
+a hyperparameter  to balance the primary recommendation
+task and the auxiliary contrastive learning task. The total
+objective function to be minimized is:
+
+ =  +   
+
+(20)
+
+5. Experiments
+This section provides an overview of the datasets used and a comparison of the results from the baseline models and our model. Additionally, we present an explanation of the evaluation metrics and the specific experimental setup, including model configuration and parameter selection.
+
+Table 2 Statistics of the datasets.
+
+Item
+
+MIMIC-III
+
+# patients # visits events # diseases # procedures # medications # inj items avg. # of visits/patient avg. # of dis./visit avg. # of proc./visit avg. # of med./visit
+
+15,407 18,557 272 204 196 279 1.295 12.7193 3.3714 34.2526
+
+MIMIC-IV
+19,721 24,777 276 213 200 325 1.2564 14.7674 3.2920 35.7669
+
+5.1. Datasets We utilize the MIMIC-III (Johnson et al., 2016)and
+MIMIC-IV (Johnson et al., 2023)datasets, which originate from clinical data in the intensive care unit (ICU). These datasets include clinical records, physiological measurements, laboratory monitoring data, and medication records
+
+of ICU patients. We follow the same data processing methods as previous studies. For the textual descriptions required by our model, which are central to both synergyaware learning (Sec 4.2) and semantic alignment (Sec 4.3), we sourced data from standard medical knowledge bases. Specifically, textual descriptions for all Medications (both  and  ) were retrieved from the DrugBank database. The descriptions for Diseases () and Procedures ( ) were obtained by mapping their corresponding ICD (International Classification of Diseases) codes from the EHR to the official ICD textual definitions. The detailed statistics of the processed datasets are presented in Table 2.
+5.2. Baselines To verify the performance of our model, we chose
+the following high-performance methods as the baseline model for comparison. Transformer (Vaswani et al., 2017): Applies individual transformer layers to each feature and concatenates the final hidden states of each transformer layer for medication recommendation. GAMENet (Shang et al., 2019): A memory network-based method where the memory bank is enhanced by integrating medication usage, a medication-medication interaction graph, and dynamic memory with patients' medical histories. Grasp (Zhang et al., 2021): By integrating knowledge from similar patients to enhance health representation, a single Grasp layer can be used within a medication recommendation model or as an independent layer to improve other recommendation models. Safedrug (Yang et al., 2021b): Introduces medication-related molecular knowledge by learning molecular representations of medication interactions to recommend safer medication combinations. Micron (Yang et al., 2021a): Utilizes a recurrent residual learning model to predict medication changes and recommends medications based on these changes and previous visit combinations. MoleRec (Yang et al., 2023): investigates the importance of specific molecular substructures within medications, enhancing medication recommendation by leveraging finer-grained molecular representations. TRANS (Chen et al., 2024): integrates temporal edge features, global positional encoding, and local structure encoding into graph convolutions to capture complex relationships in patient data for more accurate medication recommendation. REFINE (Bhoi et al., 2023): A finegrained recommendation system that integrates laboratory test responses and dosage information. It utilizes a vision transformer-based architecture to model complex clinical dependencies and employs weighted DDI graphs to balance recommendation accuracy and safety based on interaction severity. CrossMed (Li and Zhou, 2025): Captures dynamic pathological interactions between visit-level data and finegrained monitoring sequences using a temporal cross-level interaction graph and hierarchical training to capture highresolution health trends. BiMoRec (Mu et al., 2025): Fuses 2D and 3D molecular modalities through contrastive pretraining and a multi-step enhancement mechanism to eliminate structural ambiguity between medications.
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 7 of 16
+
+SynGSA-Rec
+
+Table 3 The average performance and standard deviation (mean ± std) of each model for the medication recommendation task on MIMIC-III and MIMIC-IV datasets. The top model is in bold, and the second-best is underlined. Statistical significance of our model against the strongest baseline is confirmed by a two-sided t-test ( < 0.05).
+
+Method
+Transformer Grasp GAMENet SafeDrug Micron MoleRec Trans REFINE BiMoRec CrossMed SynGSA-Rec
+
+Jaccard 
+0.4450±0.0000 0.4275±0.0015 0.4519±0.0012 0.4356±0.0013 0.4698±0.0020 0.4645±0.0008 0.4574±0.0023 0.5007±0.0029 0.4745±0.0019 0.4894±0.0019 .±.
+
+MIMIC-III
+F1 
+0.5964±0.0018 0.5779±0.0014 0.6046±0.0011 0.5886±0.0013 0.6171±0.0023 0.6124±0.0007 0.6252±0.0022 0.6673±0.0026 0.6239±0.0017 0.6571±0.0017 .±.
+
+PRAUC 
+0.7674±0.0009 0.7643±0.0017 0.7650±0.0013 0.7624±0.0014 0.7505±0.0023 0.7525±0.0012 0.7175±0.0035 0.7725±0.0026 0.7534±0.0013 0.7599±0.0025 .±.
+
+Jaccard 
+0.4753±0.0008 0.4674±0.0010 0.4907±0.0011 0.4789±0.0014 0.4833±0.0024 0.4709±0.0007 0.4713±0.0026 0.4966±0.0000 0.4712±0.0009 0.4723±0.0009 .±.
+
+MIMIC-IV
+F1 
+0.6247±0.0008 0.6106±0.0009 0.6400±0.0009 0.6282±0.0013 0.6279±0.0027 0.6182±0.0006 0.6413±0.0027 0.6605±0.0010 0.6445±0.0009 0.6416±0.0008 .±.
+
+PRAUC 
+0.7832±0.0009 0.7662±0.0021 0.7914±0.0007 0.7940±0.0009 0.7712±0.0026 0.7613±0.0004 0.7614±0.0030 0.7829±0.0015 0.7619±0.0006 0.7684±0.0020 .±.
+
+5.3. Evaluation Metrics According to (Jiang et al., 2024), we use four metrics
+to evaluate the performance of our method and SOTA, and the definitions and explanations of these metrics are adapted from the approach outlined in (de Azevedo Takara et al., 2024; Guerra et al., 2025). These are described in detail below. Jaccard (Jaccard similarity score): Quantifies the similarity between the set of instances predicted as medications or diseases and the set of instances that are actually medications or diseases, thereby evaluating the model's predictive accuracy.
+
+ () = |{   = 1}  {   = 1}|
+
+(21)
+
+|{   = 1}  {   = 1}|
+
+  =
+
+1
+
+
+  ()
+
+(22)
+
+ =1
+
+where  () represents the evaluation result at visit ,  represents the predicted outcome,  represents the real label, and  represents the total number of visits for patient . F1 (F1-score): The F1-score combines precision and recall to offer a balanced evaluation of a model's ability to accurately detect relevant medications and diseases, while ensuring comprehensive coverage. Precision measures the model's reliability in predicting positive outcomes, whereas recall captures its ability to identify all true positives. By balancing these two factors, the F1-score is particularly valuable for imbalanced datasets, where one class is significantly less frequent. A higher F1-score indicates that the model effectively detects and predicts relevant outcomes. The equation is as follows:
+
+ () = |{   = 1}  {   = 1}| (23) |{   = 1}|
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+() = |{   = 1}  {   = 1}|
+
+(24)
+
+|{   = 1}|
+
+ 1() =
+
+2
+
+1  ()
+
++
+
+1 ()
+
+(25)
+
+ 1 =
+
+1
+
+
+  1()
+
+(26)
+
+ =1
+
+where  represents the total number of visits for patient . PR-AUC (Precision-Recall Area Under Curve): Evaluates the model's performance at different recall levels, showcasing its ability to maintain precision as recall increases.
+
+||
+ - () =   ()() (27)
+
+=1
+
+() = () - -1()
+
+(28)
+
+where||denotes the number of medications , is the
+rank in the sequence of the retrieved medications , and
+ () represents the precision at cut-of in the ordered retrieval list and () denotes the change of recall from medication  - 1 to  We averaged the PRAUC
+across all of the patient's visits to obtain the final result,
+
+ -  =
+
+1
+
+
+   ()
+
+(29)
+
+ =1
+
+where  represents the total number of visits for patient  . ROC-AUC (Receiver Operating Characteristic - Area Under Curve): Calculates the area under the ROC curve by summing the trapezoidal areas formed between successive points on the ROC curve.
+
+-1
+
+ROC-AUC
+
+=
+
+
+=1
+
+1 2
+
+×( 
+
++1- 
+
+)×(
+
+
+
++1+
+
+
+
+)
+
+Page 8 of 16
+
+SynGSA-Rec
+
+(30)
+5.4. Setup Protocol In this subsection, we offer a comprehensive overview
+of the experimental environment setup, parameter selection, model configuration, and sampling methods for the testing phase
+5.4.1. Experimental Environment The experiments were conducted on an Ubuntu 22.04
+system equipped with 30GB of memory, 12 CPUs, and a 24GB NVIDIA RTX3090 GPU, using PyTorch 2.0.0 and CUDA 11.7.
+5.4.2. Configuration and Parameter For the embedding matrices of entities (Diseases, Proce-
+dures, and Medications), we set 128 as the embedding size, initialized using Xavier uniform initialization. The global dropout rate is set to 0.3.
+For our graph encoder, we implement a 3-layer LightGCN. The GNN layers operate on the 128-dimensional shared entity embeddings which serve as the initial node features. For the text encoder, we use a pre-trained PubMedBERT model (Devlin et al., 2019). The 768-dimensional output from the BERT model is frozen and projected to the 128-dimensional embedding space via a linear layer.
+For the Synergy-Aware module, the CrossAttentionModel is configured with 4 heads and a dropout of 0.1. For the temporal GRUs, we configure 1-layer GRUs that take a 256-dimensional concatenated (graph + text) input and output a 128-dimensional hidden state.
+For the loss functions, we use Focal Loss for the recommendation task with  = 0.25 and  = 2.0. For the total contrastive loss, the main balancing weight  is 0.3. Internally, the contrastive temperature  is 0.2, and both  and  weights are set to 0.05. The temperature for dynamic synergy retrieval  is 0.1.
+We conduct training for 50 epochs using the AdamW optimizer with a batch size of 16, an initial learning rate of 5e-4, and a weight decay of 1e-5.
+5.4.3. Sampling Approach Given the limited availability of publicly accessible EHR
+data, we utilize bootstrapping techniques in this phase, following the methodology outlined in (Yang et al., 2021b). As discussed in (Picheny et al., 2010) and (Dauji and Bhargava, 2016), this technique is particularly effective for small sample size scenarios.
+5.5. Performance Comparison In this section, we compare our proposed SynGSA-
+Rec model with various state-of-the-art baseline methods to evaluate its effectiveness across multiple dimensions of recommendation accuracy. For baseline methods with publicly available source code, we utilize their original implementations and apply the optimal parameter settings as reported in their respective papers. In cases where the original code is not provided, we carefully retrain the models following
+
+the detailed configurations described in their literature. We conduct extensive evaluations on both the MIMIC-III and MIMIC-IV datasets using four primary metrics: Jaccard, F1score, PR-AUC, and ROC-AUC. The comprehensive comparative results for all models are summarized in Table 3.
+Analyzing the baseline models, we observe distinct performance characteristics across different technical paradigms. Traditional sequence-based models, such as the Transformer and GAMENet, leverage longitudinal patient history to predict current medication combinations. While GAMENet improves upon basic attention mechanisms by integrating medication interaction graphs and a memory bank, its heavy reliance on standardized clinical codes limits its ability to interpret unstructured bedside events. Grasp attempts to enhance health status representations by incorporating knowledge from similar patients, yet it still struggles with the semantic complexity of heterogeneous medical data. Knowledge-driven approaches like SafeDrug and MoleRec represent a significant shift by integrating molecular structures and substructure-aware representations. While these methods excel at modeling specific pharmacological properties, they remain inherently constrained by standardized coding systems. Even BiMoRec, which introduces 3D molecular modalities to resolve structural ambiguity, fails to address the critical clinical context missing from infusion records. Recent advanced models like Trans and CrossMed utilize temporal graph convolutions and cross-level interactions to capture high-resolution health trends. Although these models achieve high accuracy on benchmark metrics, they often treat clinical entities as isolated topological nodes. They overlook the intrinsic therapeutic synergy--the logical transition from rapid immediate intervention to stable oral maintenance--which is essential for capturing a patient's true treatment trajectory.
+Our proposed SynGSA-Rec model consistently outperforms all state-of-the-art baselines across both datasets for every evaluation metric. This superior performance is primarily attributed to several key innovations within our framework. First, SynGSA-Rec successfully unlocks the value of previously ignored infusion records by leveraging textual descriptions, which effectively completes the clinical logic chain between immediate interventions and long-term maintenance. By explicitly modeling the therapeutic synergy between these two phases, our framework generates more coherent and patient-specific representations that reflect real-world clinical strategies. Furthermore, the two-stage contrastive learning mechanism addresses the long-standing gap between topological graph structures and intrinsic clinical semantics. This alignment ensures that the learned embeddings are not only structurally comprehensive but also therapeutically logical. By bridging the gap between unstructured bedside events and structured prescriptions through semantic alignment, SynGSA-Rec establishes a more robust representational foundation, ultimately leading to significantly more accurate and clinically relevant medication recommendations.
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 9 of 16
+
+SynGSA-Rec
+
+6. Discussions
+In this section, we conduct an in-depth analysis of the experimental outcomes previously discussed. Additionally we carry out a series of supplementary experiments to confirm the comprehensiveness and rationale of our approach, to ensure its robustness and validate its advancements in the field.
+
+6.1. Effectiveness Analysis The comparative experiments above showcase the su-
+perior performance of our proposed SynGSA-Rec model. Previous medication recommendation studies typically rely on standardized clinical codes, such as ICD or ATC, to represent medical entities. However, in real-world datasets like MIMIC, a significant portion of clinical data, particularly infusion medications, lacks a standardized coding system. Consequently, these vital interventions are often excluded from existing models. Given that infusion medications often represent immediate clinical interventions while prescription medications typically provide stable maintenance, their exclusion makes it impossible for models to account for the inherent therapeutic synergy between these two distinct treatment phases. Missing this critical clinical logic ultimately limits the model's predictive accuracy and practical utility. Moreover, while textual descriptions provide rich clinical insights, current methods fail to align this semantic depth with the graphical structure. This lack of cross-modal alignment prevents models from bridging the gap between the structural patterns in the graph and their real-world clinical roles.
+To address these issues, we use textual descriptions as a bridge to integrate both infusion and prescription medications into a unified space while explicitly modeling their underlying synergy. Subsequently, our two-stage contrastive learning mechanism aligns graph-based structural embeddings with their semantic counterparts. By leveraging the synergy-aware semantic view, which inherently captures the latent therapeutic logic of medications,this approach effectively recovers the clinical synergy and cross-modal correlations that are lost in traditional models.
+
+6.2. Efficiency Analysis To evaluate the computational efficiency of SynGSA-
+Rec, we conduct a rigorous analysis of its time complexity, which is primarily distributed across the following three modules.
+The first component, Synergy-Aware Representation Learning, incurs costs from textual encoding and crossattention operations. The complexity of the PubMedBERTbased text encoder is governed by the Transformer architecture, while the cross-attention module calculates synergy patterns between medications. The subtotal complexity for this stage is:
+
+ = (2   +      +   )
+
+(31)
+
+where  is the maximum sequence length,  is the BERT hidden dimension (768),  and  denote the number of
+
+prescription and infusion medications respectively, and  represents the number of historical visits.
+The second component, two-stage contrastive learning, is driven by GNN and temporal modeling. The complexity is determined by the message-passing operations on visitlevel subgraphs, the contrastive similarity calculations, and the temporal processing through GRUs. The subtotal complexity is defined as:
+
+ = (     + 2   +   2)
+
+(32)
+
+where  is the number of GNN layers (set to 3),  is the number of edges in the subgraph,  is the number of entities for contrastive alignment, and  is the GRU hidden size.
+The final component, Feature Fusion and Prediction,
+integrates the multi-modal representations for the recom-
+mendation task. The complexity for this stage is:
+
+  = (  )
+
+(33)
+
+where  represents the total number of medication labels. Since this involves a single MLP layer after feature concatenation, it is significantly more efficient than the encoding stages.
+In summary, the overall time complexity of SynGSARec can be summarized as:
+
+   +  +  
+
+(34)
+
+The primary computational bottlenecks reside in the text encoding and high-order graph convolutions. While these components are more intensive than traditional codebased models, they are essential for unlocking the clinical synergy hidden in uncoded infusion data and cross-modal correlations, providing a necessary trade-off for superior recommendation accuracy.
+
+6.3. Ablation Study
+To evaluate the contribution of our innovations to the overall performance of the model and minimize interference from external factors, we remove key modules and make logical modifications to set up several variant experiments.
+SynGSA-Rec w/o Syn: In this variant, we remove the entire Synergy-Aware Representation Learning module. Consequently, the dynamic synergy vector  is removed from the final prediction. Furthermore, during the Graph-Text alignment, the model defaults to using standard textual embeddings for medications, as the synergy-aware semantic view  is no longer available.
+SynGSA-Rec w/o GSA: In this variant, we remove the core mechanism of the Two Stage Contrastive Learning Module by removing the two-stage contrastive loss  . The graph and text encoders are thus trained only by the gradient from the final recommendation loss , without the intermediate representation alignment provided by  and  .
+SynGSA-Rec w/o Syn+GSA : In this variant, we concurrently remove both the Synergy-Aware module and the
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 10 of 16
+
+SynGSA-Rec
+
+Table 4 Ablation study of SynGSA-Rec on MIMIC-III and MIMIC-IV datasets.
+
+Model
+SynGSA-Rec w/o Syn SynGSA-Rec w/o GSA SynGSA-Rec w/o Syn+GSA SynGSA-Rec
+
+Jaccard 
+0.5146±0.0025 0.5102±0.0028 0.5086±0.0021 .±.
+
+MIMIC-III
+F1-score 
+0.6795±0.0022 0.6756±0.0024 0.6743±0.0018 .±.
+
+PR-AUC 
+0.7731±0.0020 0.7604±0.0029 0.7596±0.0026 .±.
+
+Jaccard 
+0.5480±0.0013 0.5381±0.0020 0.5405±0.0016 .±.
+
+MIMIC-IV
+F1-score 
+0.7080±0.0011 0.6997±0.0017 0.7018±0.0013 .±.
+
+PR-AUC 
+0.8055±0.0012 0.9353±0.0006 0.9365±0.0005 .±.
+
+Figure 3: Ablation study results of different subgraph components on the MIMIC-III dataset.
+
+contrastive loss . The model degrades into a simpler baseline, relying only on standard GNN and text encoders trained end-to-end for the final recommendation, without any explicit synergy modeling or representation alignment. As shown in Table 4, the ablation experiment results align with our expectations.
+SynGSA-Rec w/o Syn demonstrates that introducing Therapeutic Synergy is critical. Its removal proves that the synergy-aware semantic view  is a superior alignment target to generic text, helping the model resolve ambiguity and learn clinically coherent representations.
+SynGSA-Rec w/o GSA shows that our two-stage contrastive learning mechanism is essential for model performance. This demonstrates that aligning the entity's structural graph representations with the synergy-aware text at entity-level granularity, enforced by , is advantageous for model performance.
+SynGSA-Rec w/o Syn+GSA exhibits a significant decrease in accuracy. This phenomenon demonstrates that the synergy-aware module and the two stage contrastive learing mechanism exhibit a synergistic effect, and their combined use is what allows the model to capture complex clinical logic and further enhances overall performance.
+In addition to module-level evaluations, we conduct an in-depth investigation into the specific contributions of the three decoupled clinical relation subgraphs: ,, and . The quantitative results across four key metrics are illustrated in Figure 3, where it is evident that the full model consistently achieves the highest performance across all evaluation dimensions. Specifically, the removal of the
+
+ leads to a notable decline in Jaccard and F1-score, confirming its role as the foundational mapping between symptoms and treatments. Conversely, the elimination of the  results in a more substantial drop in ROC-AUC and PR-AUC, highlighting that procedural context is critical for maintaining robust ranking logic and distinguishing treatment intensity in complex intervention scenarios. Finally, although the exclusion of the  yields a relatively smaller decrease, its removal nonetheless compromises the model's accuracy, validating its capacity to capture direct therapeutic correlations between interventions and drugs. Collectively, these results reinforce that our multi-view decoupled architecture effectively synthesizes disparate clinical signals to achieve precise and robust medication recommendations.
+6.4. Parameter Sensitivity To investigate the influence of specific hyperparame-
+ters on SynGSA-Rec, we conducted a series of sensitivity experiments focusing on four key parameters. During the evaluation, we varied one targeted parameter at a time while keeping the others fixed at their optimal settings. The resulting performance trends are depicted in Figure 4, where the X-axis represents the parameter values and the Y-axis denotes the corresponding variations in recommendation accuracy.
+First, we examine the impact of different embedding dimensions on model performance. Figure 4(a) illustrates the results across dimensions of 32, 64, 128, and 256. The model achieves its peak performance across Jaccard, F1, and PRAUC when the embedding size is set to 128. Lower
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 11 of 16
+
+SynGSA-Rec (a)
+
+(b)
+
+(c)
+
+(d) Figure 4: Experiments on parameter sensitivity on MIMIC-III dataset.
+
+dimensions, such as 32 or 64, appear to create an information bottleneck that fails to capture the complex semantics of therapeutic synergy. Conversely, increasing the dimension to 256 raises computational costs and introduces signs of
+
+overfitting without yielding further performance gains. Consequently, 128 is selected as the optimal embedding dimension.
+Next, we assess the number of GNN layers, denoted as _ in our LightGCN component. As shown in Figure 4(b), a 3-layer network provides superior accuracy.
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 12 of 16
+
+SynGSA-Rec
+
+Insufficient layers, such as 1 or 2, are unable to propagate information from higher-order neighbors effectively, thereby failing to capture the intricate relationships between diseases, procedures, and medications. However, extending the depth to 4 layers increases model complexity and leads to over-smoothing, which subsequently degrades the recommendation quality.
+Regarding the contrastive loss weight , this parameter is critical for balancing the primary recommendation task  and the auxiliary alignment task . According to Figure 4(c), performance is suboptimal when  is set to a low value like 0.1, as the model fails to learn sufficiently aligned representations. When  reaches 1.0, the model focuses excessively on the auxiliary task at the expense of its primary recommendation goal. A value of  = 0.3 provides the best trade-off, ensuring the GSA module establishes a strong representational foundation without overwhelming the main task.
+Finally, we investigate the contrastive temperature  used in . Figure 4(d) indicates that the model is sensitive to this hyperparameter. A lower temperature such as 0.05 forces the loss to focus on harder negative samples but can introduce training instability. In contrast, a higher value like 0.5 treats all negatives more uniformly, which reduces the model's ability to learn fine-grained distinctions. The model achieves optimal stability and discrimination at  = 0.2, which we adopt for our final experiments.
+6.5. Effect of Pretrained Language Models To evaluate the influence of different PLMs on SynGSA-
+Rec, we compare five public models: BioBERT, SciBERT, ClinicalBERT, PubMedBERT, and BlueBERT. While BioBERT, ClinicalBERT, and BlueBERT are continually pretrained on biomedical or clinical corpora from a standard BERT initialization, PubMedBERT and SciBERT are pretrained from scratch using specialized domain texts.
+As shown in Table 5, PubMedBERT consistently outperforms other PLMs across both datasets, achieving a Jaccard score of 0.5160 on MIMIC-III and 0.5544 on MIMICIV. Its superiority likely stems from the from-scratch pretraining strategy, which captures a more precise semantic space required to bridge the logical gap between immediate infusion interventions and stable prescription maintenance. Notably, consistent with observations in , adding clinical notes (e.g., ClinicalBERT) does not yield additional advantages for the CMR task compared to large-scale biomedical literature pretraining. The overall high performance across all PLMs validates the robustness of our synergy-guided framework (Lv et al., 2025).
+6.6. Visualization To visually verify the effectiveness of the Synergy-
+Aware Representation Learning module in capturing personalized therapeutic contexts, we conducted a visualization analysis of the medication representation space. Specifically, we randomly selected 12 patients from the test set and projected their corresponding medication embeddings into a two-dimensional space using t-SNE (Van der Maaten and
+
+Hinton, 2008). Figure 6 illustrates the distributional differences before and after incorporating the synergy module, where each dot represents a medication entity, and different colors denote different patients.
+As shown in the Static View Figure 6 (a), without the incorporation of therapeutic synergy from infusion records, medication representations are distributed primarily based on their general pharmacological properties. Medications from different patients are entangled with each other, presenting a mixed distribution where patient identity is indistinguishable. This observation suggests that static textual representations lack patient-specific contextual information and fail to reflect the unique clinical logic of individual cases.
+In contrast, the Synergy View Figure 6 (b) exhibits a significant structural shift. After being processed by the synergy-aware module, medication representations belonging to the same patient converge into tight and distinct clusters in the latent space. This "clustering effect" provides strong qualitative evidence that SynGSA-Rec successfully captures the latent Therapeutic Synergy bridging infusion and prescription medications, effectively transforming generic medication embeddings into highly patient-specific clinical representations.
+6.7. Case Study We analyze Patient 13536330 to demonstrate how our
+framework captures longitudinal health evolution and leverages historical synergy information for medication recommendation. The specific evolution of therapeutic synergy patterns across different visits is visualized in Figure 5. In the initial infection phase during the first visit, the model identifies a robust synergy anchor between the prescription medication category J01D and Meropenem. This association establishes the baseline anti-infective logic.
+As the patient's condition deteriorates in the second visit, the model captures a surge in clinical complexity where Dopamine emerges as a central hub for life-support logic, showing strong synergies with Opioids and respiratory treatments. This reflects the multi-medication interventions necessitated by declining health status. Conversely, during the recovery phase in the third visit, the model observes a significant simplification of synergy logic. Here, the synergy matrix is dominated by NaCl 0.9%, which exhibits high associations with chronic maintenance medications and nonICU intake markers, proving the framework's sensitivity to the transition from acute rescue back to a stable baseline state.
+The core innovation of our approach is validated in the Prediction Visit, where the model synthesizes this longitudinal history to recommend medications for the latest encounter. The model successfully reconstructs a balanced synergy profile by inheriting the anti-infective logic from the first visit while integrating the supportive care patterns learned during recovery. Most notably, it predicts a high-confidence synergy for the J01D and Meropenem pair while identifying essential synergies between NaCl 0.9%
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 13 of 16
+
+SynGSA-Rec
+
+Table 5 The influence of using various PLMs on SynGSA-Rec
+
+Model
+PubMedBERT BioBERT ClinicalBERT BlueBERT SciBERT
+
+Jaccard 
+.±. 0.5077±0.0035 0.5139±0.0035 0.5133±0.0025 0.5126±0.0030
+
+MIMIC-III
+F1-score 
+.±. 0.6735±0.0031 0.6789±0.0030 0.6784±0.0022 0.6778±0.0022
+
+PR-AUC 
+.±. 0.7564±0.0033 0.7726±0.0027 0.7614±0.0027 0.7634±0.0028
+
+Jaccard 
+.±. 0.5483±0.0012 0.5453±0.0013 0.5476±0.0014 0.5479±0.0014
+
+MIMIC-IV
+F1-score 
+.±. 0.7083±0.0010 0.7057±0.0011 0.7076±0.0011 0.7079±0.0012
+
+PR-AUC 
+.±. 0.8002±0.0009 0.7973±0.0012 0.8000±0.0009 0.8002±0.0010
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Figure 5: Visualization of longitudinal therapeutic synergy evolution and prediction logic for Case Patient
+
+Figure 6: Visualization of the medication representation space. (a) The baseline static view fails to distinguish patient-specific logic, resulting in overlapping distributions. (b) Our synergyaware module successfully captures the personalized clinical synergy, as evidenced by the clear separation of medication clusters associated with individual patients. Dots and colors represent medication entities and patient identities, respectively.
+and supportive therapies such as Antacids. This confirms that SynGSA-Rec performs a context-aware integration of patient-specific needs, narrowing the gap between automated recommendations and actual clinical treatments.
+6.8. Limitations Despite the promising performance of SynGSA-Rec,
+several limitations should be acknowledged. First, while our synergy-aware mechanism successfully captures therapeutic patterns through textual semantics, the quantification of synergy strength via cosine similarity may oversimplify complex clinical relationships. Other factors such as temporal dynamics between intervention and maintenance phases, or patient-specific pharmacokinetic variations, are
+
+not explicitly modeled in the current similarity measure. Second, our framework depends on sufficient historical visit records to retrieve relevant therapeutic precedents. For patients with limited medical history or first-time admissions, the dynamic synergy fusion may not function optimally, which is a common challenge in longitudinal recommendation systems (Tan et al., 2025). Additionally, our two-stage contrastive learning mechanism introduces several hyperparameters (e.g., , , , ) that require careful tuning, and the optimal settings may vary across different datasets or clinical contexts.
+7. Conclusion
+In this paper, we propose SynGSA-Rec, a framework that explicitly models the Therapeutic Synergy between infusion and prescription medications. By leveraging textual descriptions, we incorporate vital clinical logic previously overlooked in ICU records. Our two-stage contrastive learning mechanism aligns graph embeddings with semantic views to ensure medication representations are both structurally comprehensive and therapeutically coherent. Experimental results on MIMIC-III and MIMIC-IV demonstrate that SynGSA-Rec significantly outperforms state-of-the-art baselines. These findings validate our synergy-guided approach for enhancing the clinical logicality of medication recommendation systems.
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 14 of 16
+
+SynGSA-Rec
+
+Declaration of Competing Interest
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+CRediT authorship contribution statement
+Zhichen Zhou: Conceptualization, Methodology, Software, Validation, Formal analysis, Data Curation, Investigation, Writing ­ original draft, Writing - Review & Editing, Visualization. Shi Mu: Writing Review & Editing. GuanYong Wu: Writing - Review & Editing. Shunpan Liang: Supervision, Funding acquisition.
+Acknowledgments
+Funding
+This work was supported by the Natural Science Foundation of Hebei Province,China(No.F2025203076), the S&T Program of Hebei, China(No.#236Z0302G) and the Natural Science Foun-dation of Xin-jiang Uygur Autonomous Region Funding Project, China (No.2024D01C61).
+References
+Ali, Z., Huang, Y., Ullah, I., Feng, J., Deng, C., Thierry, N., Khan, A., Jan, A.U., Shen, X., Rui, W., et al., 2023. Deep learning for medication recommendation: a systematic survey. Data Intelligence 5, 303­354.
+An, Y., Tang, H., Jin, B., Xu, Y., Wei, X., 2023. Kampnet: multisource medical knowledge augmented medication prediction network with multi-level graph contrastive learning. BMC medical informatics and decision making 23, 243.
+de Azevedo Takara, L., Teixeira, A.C., Yazdanpanah, H., Mariani, V.C., dos Santos Coelho, L., 2024. Optimizing multi-step wind power forecasting: Integrating advanced deep neural networks with stackingbased probabilistic learning. Applied Energy 369, 123487.
+Bai, Z., Zheng, Y., Yang, P., Liu, S., Zhang, Y., Chang, Y., 2025. Dcrlrec: Dual-domain contrastive reinforcement large language model for recommendation. Information Processing & Management 62, 104140.
+Bhoi, S., Lee, M.L., Hsu, W., Tan, N.C., 2023. Refine: a fine-grained medication recommendation system using deep learning and personalized drug interaction modeling. Advances in Neural Information Processing Systems 36, 24013­24024.
+Chen, J., Yin, C., Wang, Y., Zhang, P., 2024. Predictive modeling with temporal graphical representation on electronic health records, in: IJCAI: proceedings of the conference, p. 5763.
+Chen, T., Kornblith, S., Norouzi, M., Hinton, G., 2020. A simple framework for contrastive learning of visual representations, in: International conference on machine learning, PmLR. pp. 1597­1607.
+Choi, E., Bahadori, M.T., Sun, J., Kulas, J., Schuetz, A., Stewart, W., 2016. Retain: An interpretable predictive model for healthcare using reverse time attention mechanism. Advances in neural information processing systems 29.
+Dauji, S., Bhargava, K., 2016. Estimation of concrete characteristic strength from limited data by bootstrap. Journal of Asian Concrete Federation 2, 81­94.
+Devlin, J., Chang, M.W., Lee, K., Toutanova, K., 2019. Bert: Pre-training of deep bidirectional transformers for language understanding, in: Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers), pp. 4171­4186.
+Devlin, J.W., Skrobik, Y., Gélinas, C., Needham, D.M., Slooter, A.J., Pandharipande, P.P., Watson, P.L., Weinhouse, G.L., Nunnally, M.E.,
+
+Rochwerg, B., et al., 2018. Clinical practice guidelines for the prevention and management of pain, agitation/sedation, delirium, immobility, and sleep disruption in adult patients in the icu. Critical care medicine 46, e825­e873. Gu, Y., Tinn, R., Cheng, H., Lucas, M., Usuyama, N., Liu, X., Naumann, T., Gao, J., Poon, H., 2021. Domain-specific language model pretraining for biomedical natural language processing. ACM Transactions on Computing for Healthcare (HEALTH) 3, 1­23. Guerra, R.d.T., Yamaguchi, C.K., Stefenon, S.F., Coelho, L.d.S., Mariani, V.C., 2025. Deep learning approach for automatic heartbeat classification. Sensors 25, 1400. He, X., Deng, K., Wang, X., Li, Y., Zhang, Y., Wang, M., 2020. Lightgcn: Simplifying and powering graph convolution network for recommendation, in: Proceedings of the 43rd International ACM SIGIR conference on research and development in Information Retrieval, pp. 639­648. Huang, K., Altosaar, J., Ranganath, R., 2020. Clinicalbert: Modeling clinical notes and predicting hospital readmission, in: Proceedings of the ACM Conference on Health, Inference, and Learning, ACM, New York, NY, USA. pp. 72­81. Jiang, P., Xiao, C., Cross, A., Sun, J., 2024. Graphcare: Enhancing healthcare predictions with personalized knowledge graphs, in: The Twelfth International Conference on Learning Representations, pp. 1­ 28. URL: https://openreview.net/forum?id=tVTN7Zs0ml. Johnson, A.E., Bulgarelli, L., Shen, L., Gayles, A., Shammout, A., Horng, S., Pollard, T.J., Hao, S., Moody, B., Gow, B., et al., 2023. Mimic-iv, a freely accessible electronic health record dataset. Scientific data 10, 1. Johnson, A.E., Pollard, T.J., Shen, L., Lehman, L.w.H., Feng, M., Ghassemi, M., Moody, B., Szolovits, P., Anthony Celi, L., Mark, R.G., 2016. Mimic-iii, a freely accessible critical care database. Scientific data 3, 1­9. Kim, M., Kim, Y., Kang, H.J., Seo, H., Choi, H., Han, J., Kee, G., Ko, S., Jung, H., Kim, B., et al., 2025. Leveraging bert for embedding icd codes from large scale cardiovascular emr data to understand patient diagnostic patterns. BMC Medical Informatics and Decision Making 25, 300. Lee, J., Yoon, W., Kim, S., Kim, D., Kim, S., So, C.H., Kang, J., 2020. Biobert: a pre-trained biomedical language representation model for biomedical text mining. Bioinformatics 36, 1234­1240. Li, X., Zhang, Y., Li, X., Wei, H., Lu, M., 2023. Dgcl: distance-wise and graph contrastive learning for medication recommendation. Journal of Biomedical Informatics 139, 104301. Li, X., Zhou, X.H., 2025. Temporal visiting-monitoring feature interaction learning for modelling structured electronic health records. KnowledgeBased Systems , 114155. Lin, T.Y., Goyal, P., Girshick, R., He, K., Dollár, P., 2017. Focal loss for dense object detection, in: Proceedings of the IEEE international conference on computer vision, pp. 2980­2988. Ling, Y., An, Y., Hu, X., 2014. A matching framework for modeling symptom and medication relationships from clinical notes, in: 2014 IEEE International Conference on Bioinformatics and Biomedicine (BIBM), IEEE. pp. 515­520. Liu, Q., Wu, X., Zhao, X., Zhu, Y., Zhang, Z., Tian, F., Zheng, Y., 2024a. Large language model distilling medication recommendation model. arXiv preprint arXiv:2402.02803 . Liu, S., Wang, X., Zhao, X., Chen, H., 2024b. Dkinet: Medication recommendation via domain knowledge informed deep learning, in: 2024 IEEE International Conference on Bioinformatics and Biomedicine (BIBM), IEEE. pp. 3521­3526. Lv, H., Guo, Z., Wu, Z., Tan, Y., Ma, G., Lin, Z., Chen, X., Cheng, H., Yang, C., 2025. Medalign: Enhancing combinatorial medication recommendation with multi-modality alignment, in: Proceedings of the 33rd ACM International Conference on Multimedia, pp. 6084­6092. Van der Maaten, L., Hinton, G., 2008. Visualizing data using t-sne. Journal of machine learning research 9. Mishra, R., Shridevi, S., 2024. Knowledge graph driven medicine recommendation system using graph neural networks on longitudinal medical records. Scientific Reports 14, 25449. Móstoles, R., Araque, O., Iglesias, C.Á., 2024. Using enhanced representations to predict medical procedures from clinician notes. Applied
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 15 of 16
+
+SynGSA-Rec
+
+Sciences 14, 6431. Mu, S., Li, C., Li, X., Liang, S., 2025. Medication recommendation via
+dual molecular modalities and multi-step enhancement. Expert Systems with Applications 276, 127163. Picheny, V., Kim, N.H., Haftka, R.T., 2010. Application of bootstrap method in conservative estimation of reliability with limited samples. Structural and Multidisciplinary Optimization 41, 205­217. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al., 2021. Learning transferable visual models from natural language supervision, in: International conference on machine learning, PmLR. pp. 8748­8763. Shang, J., Xiao, C., Ma, T., Li, H., Sun, J., 2019. Gamenet: Graph augmented memory networks for recommending medication combination, in: proceedings of the AAAI Conference on Artificial Intelligence, pp. 1126­1133. Stärk, H., Beaini, D., Corso, G., Tossou, P., Dallago, C., Günnemann, S., Liò, P., 2022. 3d infomax improves gnns for molecular property prediction, in: International Conference on Machine Learning, PMLR. pp. 20479­20502. Tan, J., Rong, Y., Zhao, K., Bian, T., Xu, T., Huang, J., Cheng, H., Meng, H., 2024. Natural language-assisted multi-modal medication recommendation, in: Proceedings of the 33rd ACM International Conference on Information and Knowledge Management, pp. 2200­2209. Tan, Y., Lv, H., Zhan, P., Wang, S., Yang, C., 2025. Graph-oriented instruction tuning of large language models for generic graph mining. IEEE Transactions on Pattern Analysis and Machine Intelligence . Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, L., Polosukhin, I., 2017. Attention is all you need. Advances in neural information processing systems 30. Wang, Z., Wu, Z., Agarwal, D., Sun, J., 2022. Medclip: Contrastive learning from unpaired medical images and text, in: Proceedings of the Conference on Empirical Methods in Natural Language Processing. Conference on Empirical Methods in Natural Language Processing, p. 3876. Wen, W., Wang, L., Fang, L., Chen, Q., Qin, J., 2025. Crossgcl: cross-view graph contrastive learning with dual tasks for drug recommendation. Neural Computing and Applications 37, 23273­23299. Wu, R., Qiu, Z., Jiang, J., Qi, G., Wu, X., 2022. Conditional generation net for medication recommendation, in: Proceedings of the ACM web conference 2022, pp. 935­945. Yang, C., Xiao, C., Glass, L., Sun, J., 2021a. Change matters: Medication change prediction with recurrent residual networks, in: Zhou, Z.H. (Ed.), Proceedings of the 30th International Joint Conference on Artificial Intelligence, International Joint Conferences on Artificial Intelligence. pp. 3728­3734. doi:10.24963/ijcai.2021/513. Yang, C., Xiao, C., Ma, F., Glass, L., Sun, J., 2021b. Safedrug: Dual molecular graph encoders for recommending effective and safe drug combinations, in: Zhou, Z.H. (Ed.), Proceedings of the 30th International Joint Conference on Artificial Intelligence, International Joint Conferences on Artificial Intelligence. pp. 3735­3741. doi:10.24963/ ijcai.2021/514. Yang, N., Zeng, K., Wu, Q., Yan, J., 2023. Molerec: Combinatorial drug recommendation with substructure-aware molecular representation learning, in: Proceedings of the ACM web conference 2023, pp. 4075­ 4085. Zhang, C., Gao, X., Ma, L., Wang, Y., Wang, J., Tang, W., 2021. Grasp: Generic framework for health status representation learning based on incorporating knowledge from similar patients, in: Proceedings of the AAAI Conference on Artificial Intelligence, pp. 715­723. Zhang, K., Zhang, Z., Liang, Y., Wang, W., Wang, X., 2025. Hypertension medication recommendation via synergistic and selective modeling of heterogeneous medical entities: Development and evaluation study of a new model. JMIR Medical Informatics 13, e74170. Zhang, Y., Chen, R., Tang, J., Stewart, W.F., Sun, J., 2017. Leap: learning to prescribe effective and safe treatment combinations for multimorbidity, in: proceedings of the 23rd ACM SIGKDD international conference on knowledge Discovery and data Mining, pp. 1315­1324.
+
+Zhang, Y., Jiang, H., Miura, Y., Manning, C.D., Langlotz, C.P., 2022. Contrastive learning of medical visual representations from paired images and text, in: Machine learning for healthcare conference, PMLR. pp. 2­ 25.
+Zhao, Y., Wang, H., Wu, X., Zheng, Y., 2024. Mkecl: Medical knowledgeenhanced contrastive learning for few-shot disease diagnosis, in: Proceedings of the 2024 Joint International Conference on Computational Linguistics, Language Resources and Evaluation (LREC-COLING 2024), pp. 11394­11404.
+Zheng, Z., Wang, C., Xu, T., Shen, D., Qin, P., Huai, B., Liu, T., Chen, E., 2021. Drug package recommendation via interaction-aware graph induction, in: Proceedings of the web conference 2021, pp. 1284­1295.
+Zhu, J., Xia, Y., Wu, L., Xie, S., Qin, T., Zhou, W., Li, H., Liu, T.Y., 2022. Unified 2d and 3d pre-training of molecular representations, in: Proceedings of the 28th ACM SIGKDD conference on knowledge discovery and data mining, pp. 2626­2636.
+
+Zhichen Zhou,Shi M: Preprint submitted to Elsevier
+
+Page 16 of 16
+
+Declaration of Interest Statement
+Declaration of Interest Statement
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+Click here to access/download
+Latest editable source file [Word doc or *mandatorily .tex & .bib in case of LaTeX submission cas-common.sty
+
+Click here to access/download
+Latest editable source file [Word doc or *mandatorily .tex & .bib in case of LaTeX submission cas-dc.cls
+
+Click here to access/download
+Latest editable source file [Word doc or *mandatorily .tex & .bib in case of LaTeX submission cas-refs.bib
+
+Click here to access/download
+Latest editable source file [Word doc or *mandatorily .tex & .bib in case of LaTeX submission model1-num-names.bst
+
+

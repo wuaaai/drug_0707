@@ -1,0 +1,956 @@
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+Deep representation learning for clustering
+
+longitudinal survival data from electronic
+
+health records
+
+1234567890():,; 1234567890():,;
+
+Received: 17 April 2024 Accepted: 21 January 2025
+Check for updates
+
+Jiajun Qiu 1, Yao Hu1, Li Li1, Abdullah Mesut Erzurumluoglu1, Ingrid Braenne1, Charles Whitehurst 2, Jochen Schmitz2, Jatin Arora1, Boris Alexander Bartholdy1, Shrey Gandhi 1, Pierre Khoueiry1, Stefanie Mueller1, Boris Noyvert1, Zhihao Ding1, Jan Nygaard Jensen1 & Johann de Jong 1
+Precision medicine requires accurate identification of clinically relevant patient subgroups. Electronic health records provide major opportunities for leveraging machine learning approaches to uncover novel patient subgroups. However, many existing approaches fail to adequately capture complex interactions between diagnosis trajectories and disease-relevant risk events, leading to subgroups that can still display great heterogeneity in event risk and underlying molecular mechanisms. To address this challenge, we implemented VaDeSC-EHR, a transformer-based variational autoencoder for clustering longitudinal survival data as extracted from electronic health records. We show that VaDeSC-EHR outperforms baseline methods on both synthetic and real-world benchmark datasets with known ground-truth cluster labels. In an application to Crohn's disease, VaDeSC-EHR successfully identifies four distinct subgroups with divergent diagnosis trajectories and risk profiles, revealing clinically and genetically relevant factors in Crohn's disease. Our results show that VaDeSC-EHR can be a powerful tool for discovering novel patient subgroups in the development of precision medicine approaches.
+
+There has been a notable shift in the healthcare sector toward digitizing patient information, with electronic health records (EHRs) emerging as the new norm. As of 2018, the adoption rate of EHR systems has surpassed 84% and 94% in the US and UK, respectively1,2. EHR systems offer a comprehensive and easily accessible source of patient data, typically gathering data from millions of individuals over many years, encompassing various sources (such as primary and secondary care) and modalities (such as diagnoses, medications, and lab tests). The extensive nature of EHRs makes them a valuable resource for healthcare research, enabling more accurate modeling of patients and their disease risk, onset, and progression. However, the sheer size and complexity of EHR data inevitably pose challenges to modeling efforts, necessitating the development of sophisticated algorithms and data processing methods. Rapid advancements in the field of deep learning
+
+(DL) have had a profound impact on a wide range of industries and provide many opportunities for improving healthcare as well3,4. Specifically, DL has shown great promise in learning meaningful patient representations from EHRs, by virtue of its ability to uncover hidden patterns and trends in such complex datasets. These representations can then be used for a wide variety of downstream tasks such as patient stratification, disease risk prediction, disease progression modeling, etc. For example, CLOUT used long short-term memory (LSTM) networks for learning patient representations from EHRs, which were then used for downstream tasks such as mortality prediction5. Leveraging recent advances in large language modeling technology6,7, Med-BERT and BEHRT were two early examples of using transformer neural networks for learning representations from EHR sequences3,4, with applications including heart failure prediction and pancreatic cancer
+
+1Global Computational Biology and Digital Sciences, Boehringer Ingelheim Pharma GmbH & Co. KG, Biberach an der Ri, Germany. 2Immunology & Respiratory Diseases, Boehringer-Ingelheim, Ridgefield, CT, USA. e-mail: johanndejong@hotmail.com
+
+Nature Communications | (2025)16:2534
+
+1
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+prediction. As a more recent example, Placido et al. presented a transformer model for detecting patients with a high risk of pancreatic cancer from EHR data8. As a final example, Chung et al. applied the large language model GPT-4 Turbo9 on procedure descriptions and clinical notes retrieved from EHRs for tasks including the prediction of hospital mortality, hospitalization duration, and ICU duration10.
+Here, we explore the problem of learning clustered patient representations from longitudinal EHR data, in the context of diseaseassociated risk events. Patient clustering is an important concept in the field of precision medicine. Precision medicine aims to provide the right treatment, to the right patient at the right time, by utilizing individual patient characteristics to guide clinical decision-making, instead of population-wide averages of patient characteristics11. Patient clustering supports the development of precision medicine approaches by detecting patterns and trends within a certain patient population of interest, which can serve as the basis for the identification of novel disease subtypes. By studying the causal molecular mechanisms of these disease subtypes, more targeted and personalized therapeutic approaches can be developed. Disease subtyping is often relevant in the context of certain risk events12. For example, why do some patients with Crohn's disease, a subtype of inflammatory bowel disease (IBD), progress to intestinal stricture (a narrowing of the intestines due to the formation of scar tissue and muscular hypertrophy), and others do not? As Crohn's disease is a multifactorial disease, it is likely that there are multiple mechanisms associated with progression toward intestinal obstruction13. Typically, one of the following two approaches is applied for elucidating how patient subgroups correlate with event risk: (1) Start with identifying patient clusters, and then analyze the risk event within each of the clusters14. This approach has inherent limitations because resulting clusters are not guaranteed to correlate to the event risk. (2) Start with stratifying patients by the risk event, and then identify subgroups within the risk strata15. The main limitation here is that it can be difficult to identify patient subgroups with differentiating generative mechanisms. In other words, a high-risk patient subgroup could exhibit significant heterogeneity in causal molecular mechanisms, and patient subgroups with comparable survival outcomes could have varying responses to identical treatments16. Hence, to more accurately identify novel patient subgroups characterized by both divergent diagnosis trajectories and time-to-event profiles, patient clustering should be integrated with risk modeling (time-to-event analysis) to enable studying their interactions.
+While several studies have previously explored patient clustering and risk modeling17­20, none of these approaches directly integrated risk modeling with clustering. In all cases, any resulting clusters were purely driven by the risk event and would suffer from the limitations we outlined above. These limitations were recently addressed by the introduction of VaDeSC (Variational deep survival clustering)21, which integrates risk modeling with clustering using a variational autoencoder (VAE) framework. The VAE is a probabilistic generative model where observations are assumed to originate from latent representations sampled from a prior distribution of choice. This prior distribution can function as a regularizer on the learned representations by enforcing a certain latent structure22. In the original formulation of the VAE, the researchers explored multivariate Gaussian and multivariate Bernoulli priors22. More recently, with models such as Variational Deep Embedding (VaDE)23, Gaussian mixture priors have been studied for the purpose of enforcing a latent structure that promotes clustering. VaDeSC combines a Gaussian mixture prior as used in VaDE with a Weibull mixture distribution for modeling cluster-specific survival, to learn clusterspecific associations between covariates and survival times.
+Given the importance of risk modeling and clustering in healthcare research, methods such as VaDeSC provide many opportunities for applications within the healthcare domain. Specifically, insights into patients' disease history and progression are of great importance
+
+for developing a more comprehensive disease understanding and eventually developing more effective and personalized therapies24,25. Hence, in this work, we developed a novel application of VaDeSC by building upon recent advances in patient representation learning from EHR sequences4. We integrated VaDeSC with a custom-designed autoencoding transformer-based architecture and implemented VaDeSC-EHR, a first attempt at disentangling the complex relationships between cluster-specific longitudinal disease histories and event risk profiles as retrieved from EHRs. In this study, we demonstrate VaDeSC-EHR's ability to capture statistical interactions between cluster-specific diagnosis trajectories and survival times, enabling it to discover novel and clinically relevant patient subgroups.
+Results
+VaDeSC-EHR architecture VaDeSC-EHR takes a patient's disease history (diagnosis sequence) as an input and maps it into a latent representation z using a transformerbased VAE with a Gaussian mixture prior (Fig. 1). Adopting the VaDeSC approach21, the survival outcome is modeled using a mixture of Weibull distributions with cluster-specific parameters : The parameters of the Gaussian mixture and Weibull distributions are jointly optimized using the diagnosis sequences and survival outcomes. Note that in this work, we use the terms survival modeling, risk modeling, and time-toevent modeling interchangeably, as we do with patient cluster, patient subgroup, and patient subpopulation. More details about the model architecture and loss function can be found in the "Methods" section.
+UK Biobank datasets In this study, we applied VaDeSC-EHR to EHR data from UK Biobank (Table 1, Supplementary Table 1, and Supplementary Fig. 1). We mapped the Read v2/3 diagnosis codes and ICD-9 codes (International Classification of Diseases, 9th revision) provided by UK Biobank to ICD10 codes (International Classification of Diseases, 10th revision; details in the "Methods" section) and designed a multi-level ICD-10 diagnosis embedding layer to capture the hierarchical nature of the ICD-10 ontology. In this embedding layer, each diagnosis is represented by a combination of six distinct embeddings (Fig. 2): three for the ICD-10 code (subcategory, category, and block), one for age, one for type, and one for position. The age embedding represents the patient's age at the time of diagnosis and can additionally assist the model in understanding the temporal gaps between diagnoses. The type embedding differentiates between diagnoses derived from primary care data and those from hospital data. The position embedding, representing visits, establishes the relative placement of diagnoses within the diagnosis sequence, allowing the network to recognize positional relationships between diagnoses. Diagnoses originating from the same visit will have identical position embeddings.
+VaDeSC-EHR outperforms baseline methods on synthetic data In order to establish confidence in the methodology, we first technically validated VaDeSC-EHR on a synthetic benchmark dataset generated using a VaDeSC-EHR decoder (see "Methods" section) and compared its generalization performance to a range of baseline methods (Supplementary Figs. 2 and 3). The baseline methods were: variational deep survival clustering with a multilayer perceptron (VaDeSC-MLP), semi-supervised clustering (SSC)17, survival cluster analysis (SCA)18, deep survival machines (DSM)19, and recurrent neural network-based DSM (RDSM)20, as well as k-means and regularized Cox PH as naïve baselines.
+Using synthetic data provides optimal control over the datagenerating process and allows the generation of ground-truth cluster labels, which are not used for training the model, but can be used post hoc to unambiguously assess generalization performance. It is important to note that no baseline methods explicitly designed for clustering longitudinal survival data are currently available from the
+
+Nature Communications | (2025)16:2534
+
+2
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+Fig. 1 | Architecture of VaDeSC-EHR. First, an embedding is computed for a patient's diagnosis sequence. This embedding serves as input for multiple transformer blocks, where the final pooling layer generates the latent representation Z for the patient. Z is regularized toward a Gaussian mixture distribution by including
+
+a variational term in the loss function. Z is then used to predict the time-to-event21, as well as passed to the transformer decoder for reconstructing the patient's diagnosis sequence. Weights are shared between the encoder and decoder. For more details, please refer to the "Methods" section.
+
+Table 1 | Summary of the datasets used in this study
+
+Source
+
+Primary care
+
+UK Biobank EHR 5,999,672
+
+Hospital care
+
+3,434,668
+
+Age
+
+0­30
+
+219,721
+
+30­60 60­
+
+5,468,079 3,746,540
+
+Sex
+
+Male
+
+157,065
+
+Female
+
+195,826
+
+Right censored?
+
+Yes
+
+No
+
+Diagnosis sequence length (years)
+
+18.75(20.83)
+
+Interval between visits (years)
+
+0.46(0.96)
+
+Number of records
+
+9,434,340
+
+Number of patients
+
+352,891
+
+For diagnosis sequence length (years) and interval between visits (years), we show the median(IQR). CD Crohn's disease, T1D type 1 diabetes, T2D type 2 diabetes.
+
+T1D/T2D benchmark 60,148 68,628 937 52,645 75,194 1459 865 999 1325 16.04(12.73) 0.34(0.66) 128,776 2324(T1D: 494; T2D: 1830)
+
+CD application 53,470 39,179 1920 51,673 39,056 825 1083 1591 317 19.17(21.10) 0.40(0.81) 92,649 1908
+
+Fig. 2 | The embedding structure. Simulated example of a diagnosis sequence for a single individual with 8 diagnoses spread across 5 primary or hospital care visits (0­4) embedded at three levels of the ICD-10 ontology. Diag.: Diagnosis.
+
+Nature Communications | (2025)16:2534
+
+3
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+literature, and certain adaptations in applying these baseline methods need to be made (see "Methods" section). In addition to evaluating the cluster predictions using the balanced accuracy (ACC), normalized mutual information (NMI) and adjusted Rand index (ARI), we evaluated the time-to-event predictions using the concordance index (CI). Note that due to the noise in the data-generating process, achieving perfect performance was not possible.
+As can be seen in Table 2, VaDeSC-EHR significantly outperformed all other methods in retrieving the ground-truth clusters from the benchmark data. Even when replacing the transformer encoder/ decoder architecture with a basic multilayer perceptron (MLP) encoder/decoder with simple Term Frequency-Inverse Document Frequency (TF-IDF) features (VaDeSC-MLP), performance is still significantly better, highlighting the expressiveness provided by jointly modeling clustering and event risk using the VaDeSC approach. As expected, the transformer architecture helped VaDeSC-EHR to achieve much better performance on the longitudinal clustering task than VaDeSC-MLP (VaDeSC-EHR: ACC = 0.64 ± 0.04, NMI = 0.72 ± 0.04 and ARI = 0.66 ± 0.07; VaDeSC: ACC = 0.57 ± 0.05, NMI = 0.37 ± 0.04, and ARI = 0.44 ± 0.03, Table 1). Importantly, VaDeSC-EHR achieved its superior clustering performance while hardly sacrificing performance on the risk prediction task. VaDeSC-MLP only showed marginally better performance on survival prediction than VaDeSC-EHR (CI = 0.79 ± 0.02 for VaDeSC-MLP vs. CI = 0.77 ± 0.01 for VaDeSC-EHR, p-value = 0.007). Given the known regularizing effects of variational loss terms22, it is likely that VaDeSC-EHR's risk prediction performance could be improved (possibly at the expense of some clustering performance) by weighting the different loss terms (e.g. beta-VAE26). We leave this to future study.
+The remaining models (k-means+Cox PH, SSC, SCA, DSM, and RDSM) performed no better than random at retrieving the groundtruth clusters. Whereas RDSM clearly stood out as the third-best performing on the risk prediction task, it did perform worse than VaDeSCMLP. This is interesting, because RDSM explicitly models EHR data as sequences, whereas VaDeSC-MLP does not. However, as explained in the introduction, the RDSM clusters are solely driven by survival times. This can explain the observed difference between VaDeSC-MLP and RDSM on the risk prediction task, and again highlights the importance of modeling the interactions between the diagnosis sequences and the survival times.
+VaDeSC-EHR outperforms baseline methods on a T1D/T2D benchmark While VaDeSC-EHR outperformed all baseline methods on synthetic data, we still wondered how VaDeSC-EHR would compare to the baseline methods on real-world data instead of data generated through simulation. For this reason, we designed a second experiment for technically validating VaDeSC-EHR, using real-world data from UK
+
+Biobank instead of synthetic data: distinguishing 494 type 1 diabetes (T1D) patients from 1830 type 2 diabetes (T2D) patients in their progression toward retinal disorders. We chose diabetes for three main reasons. First, like for the synthetic data, it allowed us to unambiguously define ground-truth cluster labels (T1D and T2D), which would not be used for training the model but could be used post hoc to assess generalization performance. Second, with a censoring rate of 42% (Table 1), the dataset is relatively balanced allowing for a sufficiently powered comparison between the methods. Third, besides some similarities27,28, there are clear and known differences in clinical course and pathophysiological mechanisms between T1D and T2D29, which can be exploited by machine learning algorithms in their attempts to recover the ground-truth cluster labels.
+We compared VaDeSC-EHR's generalization performance to a range of baseline methods using nested cross-validation (NCV)30, by performing 10 runs using the same hyperparameters but with differently randomly initialized embeddings and neural network parameters, confirming the stability of the results (Supplementary Fig. 4). Note that the T1D and T2D labels were not used for clustering, and thus also the age at first diabetes diagnosis was not available to the model. To ensure that no information leakage occurred due to the inclusion of age-related complications, we additionally performed an analysis taking age information relative to the age at the start of the diagnosis sequence (VaDeSC-EHR_relage), by subtracting the age at first diagnosis from all elements in the age sequence. The performance of VaDeSC-EHR_relage was almost identical to that of VaDeSC-EHR, indicating that VaDeSC-EHR does indeed primarily utilize the time intervals between diagnoses, rather than the age itself.
+The main observations from our method comparison strongly mirror those made from the synthetic benchmark. Again, VaDeSC-EHR outperformed the other methods at retrieving the ground-truth clustering (Fig. 3 and Table 3; AUC: 0.81 ± 0.01, ACC = 0.81 ± 0.02), while not giving up any risk prediction performance. A UMAP projection of the latent representations of the diagnosis sequences indeed showed that patients with the same ground-truth disease label (either T1D or T2D) tended to be close in the latent space (Supplementary Fig. 5). VaDeSC-MLP (ACC: 0.71 ± 0.09) was the next best-performing method, performing better than VaDeSC-EHR_nosurv (ACC: 0.64 ± 0.06), in which the survival loss was turned off. VaDeSC-EHR's performance was degraded when not considering the survival times (VaDeSC-EHR_nosurv), illustrating that in achieving its superior performance, the full VaDeSC-EHR model did indeed exploit the interactions between EHR trajectories and survival times. As opposed to the synthetic benchmark, the performance of VaDeSC-EHR and VaDeSC-MLP on the risk prediction task was statistically indistinguishable (CI: 0.72 ± 0.07, pvalue: 0.69). Mirroring the results on the synthetic benchmark, all other models performed poorly at retrieving the ground-truth clusters. Finally, RDSM again clearly stood out as the third-best method on
+
+Table 2 | Performance on synthetic benchmark data
+
+Method
+k-means +Cox PH
+
+ACC 0.334 ± 0.002*(0.008)
+
+NMI 0.0003 ± 0.0001*(0.008)
+
+ARI -0.0003 ± 0.0003*(0.008)
+
+CI 0.505 ± 0.001*(0.008)
+
+SSC
+
+0.3334 ± 0.0004*(0.008)
+
+0.0003 ± 0.0002*(0.008)
+
+0.00005 ± 0.00050*(0.008)
+
+SCA
+
+0.336 ± 0.007*(0.012)
+
+0.03 ± 0.02*(0.012)
+
+0.006 ± 0.040*(0.012)
+
+0.639 ± 0.006*(0.008)
+
+DSM
+
+0.3327 ± 0.0004*(0.008)
+
+0.0005 ± 0.0005*(0.008)
+
+-0.0005 ± 0.001*(0.008)
+
+0.49 ± 0.01*(0.008)
+
+RDSM
+
+0.502 ± 0.002*(0.007)
+
+0*(0.007)
+
+0*(0.007)
+
+0.500 ± 0.001*(0.008)
+
+VaDeSC-MLP
+
+0.57 ± 0.05*(0.008)
+
+0.37 ± 0.04*(0.008)
+
+0.44 ± 0.03*(0.008)
+
+0.79 ± 0.02*(0.008)
+
+VaDeSC-EHR
+
+0.64 ± 0.04
+
+0.72 ± 0.04
+
+0.66 ± 0.07
+
+0.77 ± 0.01
+
+Comparison between VaDeSC-EHR and other methods adapted for clustering longitudinal survival data, in terms of balanced accuracy (ACC), normalized mutual information (NMI), adjusted Rand index (ARI), and concordance index (CI). Reported ± is one standard deviation and the significance of the difference (p-value < 0.05) between VaDeSC-EHR and the other methods is indicated by an asterisk. Significance is based on a two-sided Mann­Whitney U test. Detailed p-values are shown in the brackets.
+
+Nature Communications | (2025)16:2534
+
+4
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+Fig. 3 | Generalization performance on synthetic benchmark data. Comparison between VaDeSC-EHR and the other methods used for clustering longitudinal survival data. VaDeSC-EHR_nosurv represents VaDeSC-EHR trained without risk Loss. VaDeSC-EHR_relage represents VaDeSC-EHR trained with age information taken relative to the age at the start of the diagnosis sequence. The analyses are based on nested 5-fold cross-validations (n = 5). a Performance on retrieving the ground-truth clustering, in terms of the area under the receiver-operating
+
+characteristic (ROC), with p-values for the significance of the difference between VaDeSC-EHR and the other methods. Significance is assessed using a permutation test combined with 10,000 bootstrap iterations. b Performance on retrieving the ground-truth clustering in terms of balanced accuracy (ACC), with 0.5 for random performance. c Performance on time-to-event prediction, in terms of concordance index (CI), with 0.5 for random performance. Data are presented as mean values ± standard deviation.
+
+Table 3 | Generalization performance on T1D/T2D benchmark data
+
+Method k-means+Cox PH
+
+ACC 0.40 ± 0.01*(0.008)
+
+NMI 0.06 ± 0.01*(0.008)
+
+ARI 0.09 ± 0.01*(0.008)
+
+CI 0.51 ± 0.01*(0.008)
+
+SSC
+
+0.40 ± 0.01*(0.008)
+
+0.06 ± 0.02*(0.008)
+
+0.087 ± 0.009*(0.008)
+
+SCA
+
+0.53 ± 0.03*(0.008)
+
+0.005 ± 0.006*(0.008)
+
+0.02 ± 0.02*(0.008)
+
+0.60 ± 0.02*(0.008)
+
+DSM
+
+0.498 ± 0.007*(0.011)
+
+0.0003 ± 0.0005*(0.011)
+
+0.003 ± 0.009*(0.011)
+
+0.37 ± 0.02*(0.008)
+
+RDSM
+
+0.503 ± 0.003*(0.011)
+
+0.002 ± 0.002*(0.011)
+
+0.006 ± 0.008*(0.011)
+
+0.63 ± 0.13*(0.008)
+
+VaDeSC-MLP
+
+0.71 ± 0.09*(0.016)
+
+0.15 ± 0.09(0.222)
+
+0.13 ± 0.14(0.548)
+
+0.72 ± 0.07(0.690)
+
+VaDeSC-EHR_nosurv 0.64 ± 0.06*(0.008)
+
+0.06 ± 0.05*(0.008)
+
+0.08 ± 0.03*(0.008)
+
+VaDeSC-EHR_relage 0.81 ± 0.02(0.458)
+
+0.24 ± 0.04(0.458)
+
+0.23 ± 0.04(0.458)
+
+0.71 ± 0.01*(0.047)
+
+VaDeSC-EHR
+
+0.81 ± 0.02
+
+0.24 ± 0.04
+
+0.23 ± 0.04
+
+0.72 ± 0.01
+
+Comparison between VaDeSC-EHR and the other methods used for clustering longitudinal survival data, in terms of balanced accuracy (ACC), normalized mutual information (NMI), adjusted Rand index (ARI), and concordance index (CI). Reported ± is one standard deviation, and the significance of any difference (p-value < 0.05) between VaDeSC-EHR and the other methods is indicated by an asterisk. Significance is based on a two-sided Mann­Whitney U-test. Detailed p-values are shown in the brackets.
+
+the risk prediction task (CI = 0.63 ± 0.13), highlighting the importance of accounting for interactions between diagnosis sequences and survival times.
+Concluding, VaDeSC-EHR outperformed the baseline methods not only on synthetic data but also on an experiment designed from real-world data. This reinforced our confidence in the approach and again highlighted the potential of integrating VaDeSC into a transformer-based patient representation learning approach.
+Application: VaDeSC-EHR identifies clinically and genetically relevant Crohn's disease patient subgroups Having gained confidence in the method through two technical validation experiments with ground-truth cluster labels, we applied VaDeSC-EHR to 1908 Crohn's disease (CD) patients from UK Biobank. Here, the purpose was to identify potentially novel patient subgroups
+
+related to progression toward intestinal obstruction, an important CD complication31 that is enriched in CD patients relative to the general population (Supplementary Fig. 6). Here, VaDeSC-EHR identified four patient subgroups (CI: 0.91 ± 0.02) that demonstrated both divergent longitudinal disease histories and divergent risk profiles (Fig. 4). The results were stable across 10 randomly initialized runs (Supplementary Fig. 7). As expected, we observed that patients clustered together tended to be close in the latent space, i.e. have diagnosis trajectories that are similar (Fig. 4a). Additionally, the four patient subgroups each demonstrated distinct time-to-event profiles (Fig. 4b), with the fastest progressing cluster 2 being most strongly enriched for intestinal obstruction (Supplementary Fig. 8a). We found the four clusters to be significantly associated with age of onset (p-value: 6.82 × 10-05), sex (pvalue: 2.35 × 10-10), genetic principal component number 1 (PC1) (pvalue: 0.01), but not with UKB recruitment location or overall diagnosis
+
+Nature Communications | (2025)16:2534
+
+5
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+Fig. 4 | Clustering CD patients from UK Biobank in their progression toward intestinal obstruction. a UMAP (Uniform Manifold Approximation and Projection) projection of the latent representations of the CD patients, coloring patients
+
+by cluster (silhouette coefficient: 0.783). b Cluster-specific Kaplan­Meier curves with 95% confidence intervals. Lines denote mean values and shaded regions are 95% confidence intervals.
+
+sequence length (total number of diagnosis codes) (Supplementary Figs. 8­10).
+CD patient subgroups demonstrate distinct disease histories. To gain insight into the generative mechanisms giving rise to the observed differences in intestinal obstruction risk, we first analyzed differential enrichment of individual diagnoses across the clusters, while adjusting for potential confounding as outlined in the "Methods" section. For example, corroborating previous studies32­34, we found that many important CD-related ICD-10 codes were reported significantly less frequently in the most slowly progressing cluster 1, such as R10 (abdominal and pelvic pain, adjusted p-value: 0.01), R11 (nausea and vomiting, adjusted p-value: 0.0007), and D64 (anemia, adjusted pvalue: 0.0001) (Supplementary Fig. 11). To take full advantage of the longitudinal nature of VaDeSC-EHR we then wanted to analyze how diagnosis trajectories longitudinally differed among patient clusters. Although there was no significant difference in overall diagnosis sequence length between the clusters (Supplementary Fig. 8e), the diagnosis history leading up to the first CD diagnosis was twice as long for the slowly progressing clusters (clusters 1 and 4) as it was for fast progressing clusters (clusters 2 and 3) (Supplementary Fig. 8f), with many diagnosis subsequences significantly enriched in the slow progressors before their first CD diagnosis relative to the fast progressors (Supplementary Fig. 12a). These enriched diagnosis subsequences contained many known comorbidities of CD such as anemia34, hypertension35, and hernia32. While clusters 1 and 4 were strongly enriched for comorbidities before the first CD diagnosis, there was no significant enrichment of comorbidities after the first CD diagnosis, except for hypertension. On the other hand, clusters 2 and 3 were hardly significantly enriched for comorbidities leading up to their first CD diagnosis (Supplementary Fig. 12b), but these patients did appear to progress more rapidly in their disease, as evident from comorbidities developing after CD onset, including abdominal pain, nausea, vomiting and iron deficiency anemia32,36,37 (Supplementary Fig. 12b). Interestingly, although patients in clusters 1 and 4 progressed more slowly, their diagnosis trajectories were nonetheless quite distinct (Supplementary Fig. 13). For example, cluster 4 was more enriched for hypertension before first the CD diagnosis, whereas cluster 1 was more enriched for pain38,39 (back pain, abdominal pain and pain in joint), and respiratory abnormalities40,41 (cough and asthma) (Supplementary Figs. 13 and 14).
+
+Does smoking protect against progression toward intestinal obstruction in some CD patients? Because of the previously reported interesting and poorly understood differential effects of smoking behavior between the two main types of inflammatory bowel disease (protective in ulcerative colitis and harmful in Crohn's disease)42,43, we were then interested to see whether smoking was uniformly harmful across our identified CD patient clusters. Corroborating previous work35, we observed that smoking behavior was associated with faster progression toward intestinal obstruction in the overall CD patient population (ever smoked, log hazard ratio: 0.08, Fig. 5a; ICD-10 F17.2: nicotine dependence, log hazard ratio: 0.20, Fig. 5b). Interestingly however, we observed that the slowest progressing cluster 1 was enriched for smoking behavior (ever smoked, p-value: 1.86 × 10-05; ICD10 F17.2: nicotine dependence, p-value: 0.001) (Fig. 5c, d). Even more surprisingly, within cluster 1, smoking was in fact significantly associated with slower progression toward obstruction, i.e. CD patients who had ever smoked generally progressed more slowly toward intestinal obstruction (ever smoked, log hazard ratio: -0.76, p-value: 1.06 × 10-07, Fig. 5a; ICD-10 F17.2: nicotine dependence, log hazard ratio: -0.96, p-value: 0.001, Fig. 5b). Similarly, "Pack years of smoking" and "Pack years adult smoking as a proportion of life span exposed to smoking" were associated with slower progression toward intestinal obstruction within cluster 1, as were previous and current smoker status (Supplementary Fig. 15). These results could suggest that in CD, as in ulcerative colitis42,43, patient subgroups exist for which smoking protects against progression toward intestinal obstruction.
+VaDeSC-EHR can identify subgroup-specific molecular mechanisms relevant to drug discovery and precision medicine. In addition to the EHR data that was used for identifying the four CD patient subgroups presented in this section, UK Biobank provides a wealth of other types of data on the same CD patients that we did not use for clustering. Specifically, the genetics data available for approximately 500,000 patients in the UK Biobank provides interesting opportunities for further characterizing our patient clusters and gaining insight into the generative mechanisms underlying the observed differences between the clusters.
+Using the available genetics data, we first computed pathway PRSs (pathway-based polygenic risk scores) to assess differences in the underlying genetic background between fast and slow progression clusters (Supplementary Data 1). Among others, we found that the fast
+
+Nature Communications | (2025)16:2534
+
+6
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+Fig. 5 | Association of CD clusters with smoking behavior. The analyses are based on 1,908 CD patients (n = 1908). a Association of ever having smoked (UK Biobank data field: 20160) with risk of intestinal obstruction (p-values are Overall: 0.45, Cluster 1: 1.06 × 10-07, Cluster 2: 1.23 × 10-29, Cluster 3: 0.109, Cluster 4: 0.200) and b Association of nicotine dependence with risk of intestinal obstruction (ICD-10 code: F17.2) (p-values are Overall: 0.26, Cluster 1: 0.001, Cluster 2: 4.23 × 10-09, Cluster 3: 0.09, Cluster 4: 0.99). Data are presented as mean values ± 95%
+
+confidence intervals. They are estimated using two-sided Cox proportional hazards regression models. And the asterisk represents the significance of the p-value < 0.05 (multivariate Cox regression). c Percentage of patients who ever smoked (pvalue: 1.86 × 10-05) and d Percentage of patients with nicotine dependence (ICD-10 code: F17.2) (p-value: 0.001). Significance is assessed using multinomial logistic regression with log-likelihood ratio test, which is a two-sided test.
+
+progressors (clusters 2 and 3) displayed a higher genetic burden in a pathway related to the adaptive immune response (Fig. 6a), relative to the slow progressors (clusters 1 and 4) (Fig. 6a). Specifically, we found that the patients in the fastest progressing cluster 3 displayed a higher genetic burden in this pathway than the patients in all other, more slowly progressing, clusters. The involvement of innate immunity versus adaptive immunity in the pathogenesis of CD is an important topic of research44. Recently, several studies demonstrated the role of an abnormal adaptive immune response in the pathogenesis of CD44­46, and the over-reactive adaptive immune response is in fact the target of current CD treatments46. Our results confirm the important role that the adaptive immune response may play in the pathogenesis of CD in at least a subpopulation of CD patients.
+We then wanted to see if we could identify any specific genetic variants in the adaptive immune response pathway that could potentially explain the significant association of its pathway PRS with our patient subgroups. Among the 150 SNPs, we found SNP rs2523608 to be significantly associated with fast progression toward intestinal obstruction (clusters 2 and especially 3) (Fig. 6b, c). SNP rs2523608 has previously been associated with gastrointestinal disorders, such as celiac disease47 (known to be bidirectionally causally related to CD48), intestinal malabsorption49 (a common complication of CD50), and CD itself51.
+Interestingly, rs2523608 has been reported to be negatively associated with the binding antibody response to interferon beta-1a (IFN beta-1a) therapy in multiple sclerosis (MS), which shares common pathogenic processes with CD52. IFN beta-1a is an approved treatment
+
+for MS53 and has been investigated as a potential treatment for CD as well, due to its ability to down-regulate the expression of interleukin12, a cytokine that is thought to be involved in mucosal degeneration in CD54. Unfortunately, there was no significant difference in efficacy between patients receiving IFN beta-1a and those receiving placebo54. However, the results of the MS study suggest that one reason for this observed lack of efficacy could lie in the genetic variability across patients. More specifically, depending on the presence of the rs2523608 SNP (risk allele frequency in UKB: 0.42 in CD patients and 0.40 in the general population) in a CD patient, response to IFN beta-1a treatment could be impaired. Using VaDeSC-EHR, we identified two, relatively fast progressing, CD subgroups enriched for this SNP. This demonstrates that VaDeSC-EHR is able to identify subgroup-specific molecular mechanisms relevant to drug discovery and precision medicine, using only longitudinal diagnosis data as input.
+Discussion
+Precision medicine aims to develop therapies that are targeted to specific patient subgroups based on their predicted disease risk or progression, or treatment response. Due to their scale, comprehensive nature, and multimodality, EHRs have emerged as a valuable source of data for healthcare research in general and the development of precision medicine approaches specifically55. An important concept in precision medicine is the identification of novel patient subgroups, i.e. patient clustering. Retrospective analysis and clustering of EHR trajectories can provide an important first step in the development of precision medicine approaches by supporting the identification of
+
+Nature Communications | (2025)16:2534
+
+7
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+Fig. 6 | Association of CD clusters with genetics. The analyses are based on 1908 CD patients (n = 1908). a Pathway polygenic risk scores (pathway PRS) of the adaptive immune response pathway, comparing clusters 2 and 3 with clusters 1 and 4 (left), and cluster 3 with the other three clusters (right). The bounds of the box are defined by the lower quartile (25th percentile) and the upper quartile (75th percentile). The whiskers extend from the box and represent the data points that fall within 1.5 times the interquartile range (IQR) from the lower and upper quartiles. Any data point outside this range is considered an outlier and plotted separately. Significance is assessed using logistic regression with log-likelihood ratio test, which is a two-sided test. And
+
+multiple testing is corrected using the Benjamini­Hochberg procedure. b Enrichment of individual genetic variants used in the pathway PRS in clusters 1 and 4 relative to clusters 2 and 3, with the horizontal line indicating the significance level (FDR adjusted) p-value: 0.05. The variant highlighted in red is rs2523608. c Enrichment of individual genetic variants used in the pathway PRS in clusters 1, 2, and 4 compared to cluster 3, with the horizontal line indicating the significance level (FDR adjusted) p-value: 0.05. The variant highlighted in red is rs2523608. Significance is assessed using a two-sided Chisquare test and multiple testing is corrected using the Benjamini­Hochberg procedure.
+
+Nature Communications | (2025)16:2534
+
+8
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+novel subgroup-specific and targetable disease mechanisms. Following the identification of a potentially targetable patient subgroup, predictive modeling could be used for prognostic enrichment of clinical trials56, which can eventually influence treatment decisions in clinical practice, through a drug label reflecting the enrichment strategies used to select patients in the clinical trials57.
+In this paper, we implemented a novel application of VaDeSC21 leveraging recent advances in the domain of EHR modeling. Specifically, we integrated VaDeSC into a custom-designed transformerbased autoencoding architecture for patient representation learning and developed VaDeSC-EHR, for clustering longitudinal time-to-event data extracted from EHRs. VaDeSC-EHR can exploit statistical interactions between a patient's longitudinal disease history and survival time, enabling it to identify non-trivial patient subgroups characterized by both divergent disease histories and survival times. We validated VaDeSC-EHR on two benchmark experiments with known ground-truth cluster labels, showing that VaDeSC-EHR outperformed all baseline methods on simultaneously the risk prediction task and the task of retrieving the ground-truth clustering. The baseline methods failed to identify clinically relevant subgroups due to either their focus on purely risk-driven clustering or their inability to model EHRs as sequences. As such, our validation highlights the need for novel methods such as VaDeSC-EHR that can more accurately identify novel patient subgroups by modeling the interactions between longitudinal diagnosis trajectories and event risk. After the technical validation, we applied VaDeSC-EHR to the problem of clustering Crohn's disease patients in their progression toward intestinal obstruction. We demonstrated that the resulting subgroups were both clinically and biologically relevant. Specifically, using only diagnosis trajectories as input, VaDeSC-EHR was able to identify molecular mechanisms relevant to only specific subgroups of CD patients. Knowledge of such mechanisms is critical for drug discovery and the development of precision medicine approaches.
+VaDeSC-EHR is a first attempt at integrating recent advances in EHR trajectory clustering and risk modeling and we see many opportunities for future research, a few of which we list here. First, the attention mechanism in the transformer architecture could be used to improve the interpretability of resulting clusters, e.g. by integrating an attention-based feature importance score58. Second, in our implementation of VaDeSC-EHR, we took some limited steps in representing relations between medical concepts by embedding multiple layers of the ICD-10 ontology, using the alphanumeric ICD10 codes. However, more sophisticated, and potentially more powerful, approaches have been published that could be integrated with VaDeSC-EHR. Examples include modeling the entire ICD-10 ontology by representing ICD-10s as combinations of their ancestors via an attention mechanism59 as well as generating embeddings based on ICD-10 text descriptions instead of the ICD-10 codes60. Third, depending on the data source used, additional data modalities could be included to provide a more comprehensive view of a patient's disease presentation, as well as to investigate additional factors potentially confounding the interpretation of the clustering, such as additional longitudinal EHR data modalities (e.g. medications, lab tests, and surgical procedures) and demographics (e.g. age, sex, education) or molecular data modalities commonly available in biobanks (e.g. genomics, proteomics)5.
+In our study, we used data from the UK Biobank. The UK Biobank study provides extensive molecular and health data from approximately 500,000 volunteers from the UK. These data are moreover linked to EHR data collected from primary and hospital inpatient care interactions. Like the work that we built upon3,4, we focused on diagnosis trajectories. Our reason for this is that typical EHR data modalities such as prescribed medications and lab tests are not available from UK Biobank. Additionally, while longitudinal data on procedures are available, these data are only available in the highly UK-specific
+
+OPCS3/4 coding systems that are not easily mappable to internationally used systems and their inclusion would hence lead to highly UK-specific models61,62. In addition to the limited availability of EHR data modalities, another drawback of using UK Biobank data for EHR modeling is that the number of individuals covered by UK Biobank is small compared to many EHR databases such as IBM MarketScan63. However, the rich multimodality of biobanks such as the UK Biobank, with data ranging from lifestyle, medical history, and biometric data to molecular data such as whole genome sequencing data, provides wideranging opportunities for the downstream interpretation of analyses such as presented in our study.
+In conclusion, we demonstrated how VaDeSC-EHR, integrating recent advances in risk modeling and EHR modeling, is highly effective at disentangling complex relationships between cluster-specific diagnosis trajectories and survival times. Hence, VaDeSC-EHR can be a powerful tool for supporting the development of precision medicine approaches through its ability to discover novel risk-associated patient subgroups.
+Methods
+EHR dataset from UK Biobank This study was conducted using the UK Biobank resource, which has ethical approval and its own ethics committee (https://www. ukbiobank.ac.uk/ethics/). This research has been conducted using UK Biobank resources under Application Number 57952. For our analyses, we used both the primary and hospital inpatient care diagnosis records made available via the UK Biobank study64. We started from 451,265 patients with available hospital inpatient care data. For each patient, a diagnosis sequence was constructed by interleaving the hospital inpatient care data with any available primary care data based on their timestamps. We then mapped all resulting diagnosis codes from Read v2/3 and ICD-9 to ICD-1064. For those codes mapping to multiple ICD-10 codes, we included all possible mappings. Keeping only patients with at least five diagnoses, at most 200 diagnoses, and at least one month of diagnosis history, the resulting dataset consisted of 352,891 patients.
+The data processing pipeline is visualized in Supplementary Fig. 16, and the resulting dataset is summarized in Table 1, Supplementary Table 1, and Supplementary Fig. 1.
+
+VaDeSC-EHR architecture For implementing VaDeSC-EHR, we integrated VaDeSC into a transformer-based encoder/decoder architecture for learning patient representations (Fig. 1). Here, we describe the architecture and generative process in more detail.
+
+The generative process. Adopting the approach of VaDeSC21, first, a
+
+cluster assignment c 2 f2, . . . , Kg is sampled from a categorical dis-
+
+tribution: Gaussian
+
+dpiðsctÞri=bCutaiotðn:Þp. TðzhjceÞn=aNlaÀtecn,te2cmÁ. bTehdeddiniaggznoississamsepqlueednfcreomx
+
+a is
+
+generated from pðxjzÞ, which for VaDeSC-EHR is modeled by a
+
+transformer-based decoder as described below. Finally, the survival
+
+time t is generated by pðtjz, cÞ.
+
+Transformer-based encoder and decoder Embedding. First, for each ICD-10 code, its subcategory (e.g. K50.1), category (e.g. K50), and block (e.g. K50-K52) were extracted using the algorithm shown in Supplementary Note 1.
+Then, the ICD-10 code (subcategory, category, and block), age, and type (primary or hospital) were individually embedded, while adding a sinusoidal position embedding to each of the individual embeddings. The position embedding was based on the visit number of the diagnosis within the diagnosis sequence6. Hence, diagnoses originating from the same doctor's visit received the same position embedding. Finally, the individual embeddings were summed to arrive
+
+Nature Communications | (2025)16:2534
+
+9
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+at the final embedding for each diagnosis (Fig. 2):
+
+Adding a cluster indicator as in VaDE23, the ELBO looks as follows:
+
+EICD = EICD block + EICD category + EICD subcategory
+
+ð1Þ
+
+LðxÞ = EqðzjxÞ log pðxjzÞ À DKLðqðz, cjxÞjjpðz, cÞÞ
+
+ð9Þ
+
+Eencoder = EICD + Eage + Etype + Eposition
+
+ð2Þ
+
+Encoder. The embeddings were fed into a classical transformer encoder6,7 augmented with a SeqPool layer65 to consolidate the entire sequence of a patient into a single comprehensive representation for that individual. More specifically, given:
+
+X L = f ðX 0Þ 2 Rb × n × d
+
+ð3Þ
+
+The first term is the same as above. Analogous to the above, in the second term, qðz, cjxÞ is the variational approximation to the intractable posterior pðz, cjxÞ and can be seen as regularizing z to lie on a multivariate Gaussian mixture manifold.
+Finally, additionally, including a survival time variable t in the model as in VaDeSC21, the ELBO looks as follows:
+
+Lðx, tÞ = EqðzjxÞpðcjz, tÞ log pðxjzÞ + EqðzjxÞpðcjz, tÞ log pðtjz, cÞ
+
+ð10Þ
+
+À DKLðqðz, cjx, tÞjjpðz, cÞÞ
+
+where X L is the output of an L layer transformer encoder f , and b is the batch size, n is the sequence length, d is the total embedding dimension. X L was fed into a linear layer gðX LÞ 2 Rd × 1, and a softmax activation was applied to the output:
+
+The reconstruction loss pðxjzÞ is calculated as sequence length*mean cross-entropy.
+The survival time pðtjz, cÞ is modeled by a Weibull distribution and adjusts for right-censoring:
+
+X
+
+0 L
+
+=
+
+sof
+
+À tmaxðg X
+
+ÁT
+L
+
+Þ
+
+2
+
+Rb
+
+×
+
+1
+
+×
+
+n
+
+ð4Þ
+
+This generated an importance weighting for each input token, which was used as follows65:
+
+z
+
+=
+
+X
+
+0 L
+
+X
+
+L
+
+=
+
+sof
+
+t
+
+max
+
+ðg
+
+À X
+
+L
+
+ÁT
+
+Þ
+
+×
+
+XL
+
+2
+
+Rb × 1 × d
+
+ð5Þ
+
+By flattening, the output z 2 Rb × d was produced, a summarized
+
+embedding for the full patient sequence.
+
+Decoder. First, the latent representation was transformed using fully connected layers:
+
+
+
+
+
+
+
+X = f W ðiÞ . . . f W ð1ÞZ ð1Þ , Z 2 Rb × J , X 2 Rb × LH
+
+ð6Þ
+
+Here, i is the number of layers, b the batch size, L the sequence length, J
+the number of latent variables, H the dimensionality of embedding,
+and Z the latent representation (Fig. 1). X was then reshaped to X re (Rb × LH ! Rb × L × H ) and fed into the
+transformer decoder6,7 to generate the reconstructed ICD embedding E^ICD = DecoderðX reÞ. The reconstructed input embedding for each diagnosis for a given patient was then computed as:
+
+Edecoder = E^ICD + Eage + Etype + Eposition
+
+ð7Þ
+
+Here, Eage, Etype and Eposition were copied over from the input to the transformer encoder.
+Finally, the original EHR input sequence (up to the level of the ICD-
+10 subcategory) was reconstructed from Edecoder using a softmax function.
+
+Evidence lower bound (ELBO)
+The loss on the architecture as described above was computed using the ELBO as previously defined for VaDeSC by Manduchi et al.21. We briefly present the formula and outline its interpretation, but for more details, we refer the reader to Manduchi et al.21.
+The ELBO of the classic VAE22 looks as follows:
+
+pðtjz, cÞ = f ðtÞSðtjz, cÞ1À
+
+2
+
+=
+
+4k cz
+
+!kÀ1
+
+0
+
+t cz
+
+exp@À
+
+!k 132 0
+
+t zc
+
+A5 4exp@À
+
+!k 131À t A5 zc
+
+ð11Þ
+
+Here, the variable  represents the censoring indicator, which is
+
+assigned 0 when the survival time of the patient is censored, and 1 in
+
+all other cases. For each patient, given by the latent space z and
+
+cluster assignment c, the uncensored survival time is assumed to fol-
+
+low a Weibull where zc = sof
+
+distribution: tplusðzT cÞ,
+
+f ðtÞ c 2
+
+=W È
+1
+
+eil
+
+bullÀzc
+
+,
+
+Á k
+
+É
+
+, 2, . . . , K .
+
+=
+
+k zc
+
+ðtzc ÞkÀ1
+
+expðÀðtcz Þk Þ,
+
+The censored survival
+
+time is then described For more details
+
+by the survival function Sðtjz, cÞ = and the complete derivation of
+
+ethxepðÀVaðDtcz ÞekSÞ.C
+
+ELBO, we refer the reader to Manduchi et al.21.
+
+Pre-training and fine-tuning strategy For the real-world data applications (diabetes and CD), we first pretrained the transformer encoder on the entire UK Biobank EHR dataset (Table 1, column 3). Following the original BERT study, we used a masked diagnosis learning strategy for pre-training. Specifically, for each patient's diagnosis sequence, we set an 80% probability of replacing a code by [MASK], a 10% probability of replacing a code by a random other code, and the remaining 10% probability of keeping the code unchanged. The ICD-10 embeddings were randomly initialized, and the encoder was trained using an Adam optimizer with default beta1 and beta2.
+For selecting our final transformer architecture, we followed the Bayesian hyperparameter optimization strategy as described in the BEHRT study4. The best-performing architecture consisted of 6 layers, 16 attention heads, a 768-dimensional latent space, and 1280dimensional intermediate layers (more details in Supplementary Table 2).
+After transformer encoder pre-training, we fine-tuned VaDeSCEHR end-to-end on the T1D/T2D dataset (Table 1, column 4) and the CD dataset (Table 1, column 5). Details around fine-tuning are described in the following section.
+
+LðxÞ = EqðzjxÞ log pðxjzÞ À DKLðqðzjxÞjjpðzÞÞ
+
+ð8Þ
+
+Here, x is the input patient diagnosis sequence, z is the latent space for the patient. The first term pðxjzÞ can be interpreted as the reconstruction loss of the autoencoder. In the second term, qðzjxÞ is the variational approximation to the intractable posterior pðzjxÞ and can be seen as regularizing z to lie on a multivariate Gaussian manifold22.
+
+VaDeSC-EHR in various applications Synthetic benchmark Data generation. We used a transformer decoder with random weights to simulate diagnosis sequences (Supplementary Fig. 2). More specifically, let K be the number of clusters, N the number of data points, L the capped sequence length, H the dimensionality of embedding, D the size of vocabulary, J the number of latent variables, k the shape parameter of the Weibull distribution and pcens the
+
+Nature Communications | (2025)16:2534
+
+10
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+probability of censoring. Then, the data-generating process can be
+
+summarized as follows:
+
+1.
+
+Let
+
+c
+
+=
+
+1 K
+
+,
+
+for
+
+1
+
+c
+
+
+
+K
+
+2. Sample ci $ CatðÞ, for 1  i  N
+
+3. Sample c, j $ unif ðÀ10, 10Þ, for 1  c  K and 1  j  J
+
+4. Sample zi$N ðci , ci Þ, for 1  i  N 5. Sample seqi $ unif ð0, LÞ, for 1  i  N 6. Let gresðzÞ = reshapeðReLUðwz + bÞ, L × HÞ, where w 2 RLH × J and
+b 2 RLH random matrices and vectors.
+
+7. 8.
+
+Let Let
+
+xi = gresðziÞ, gatt ðxÞ = sof
+
+for 1 tmax
+
+iN ððwQx + bQpÞðffiwffiffi K
+H
+
+x
+
++
+
+bK
+
+ÞT
+
+À
+
+Á
+
++ maskÞ wV x + bV ,
+
+where wQ, wK , wV and bQ, bK , bV are random matrices and vec-
+
+tors. Mask is based on seqi 9. Let xi = gatt ðgatt ðgatt ðxiÞÞÞ, for 1  i  N 10. LetgdecðxÞ = sof tmaxðReLUðwx + bÞÞ, where w 2 RD × H and b 2
+RD random matrices and vectors.
+
+11. Let xi = argmaxðgdecðxiÞÞ½1 : seqi, for 1  i  N
+
+12. Sample c, j $ unif ðÀ2:5, 2:5Þ, for 1  c  K and 1  j  J
+
+13.
+
+Sample
+
+ui
+
+$
+
+W eibullðsof
+
+t
+
+pl
+
+usðz
+
+T i
+
+ci
+
+Þ,
+
+kÞ,
+
+for
+
+1
+
+
+
+i
+
+
+
+N
+
+14. Sample i $ Bernoullið1 À pcensÞ, for 1  i  N À Á
+
+15. Let ti = ui, if i = 1, and sample ti $ unif 0, ui otherwise,
+
+for 1  i  N
+
+In our experiments, we fixed K = 3, N = 30000, J = 5, D = 1998 (ICD-
+10 category-level vocabulary), k = 1, pcens = 0:3, L = 100: For the attention operation, we used 3 attention layers with 10 heads in each layer.
+
+Model training and hyperparameter optimization. Hyperparameter optimization was done by a grid search on learning rate ({0.1, 0.05, 0.01, 0.005, 0.001}) and weight decay ({0.1, 0.05, 0.01, 0.005, 0.001}), using an Adam optimizer with default beta1 and beta2. For performance estimation, we split the generated data into three parts, onethird for training, one-third for validating, and one-third for testing the model. We repeated the above 5 times (i.e. for 5 randomly generated datasets) to arrive at a robust average performance estimate.
+
+Real-world diabetes benchmark Data extraction. To extract the data, we selected patients by the occurrence of ICD-10 codes E10 (T1D) or E11.3 (T2D) in their diagnosis trajectories and labeled patients by the presence of H36 ("Retinal disorders in diseases classified elsewhere"). Because of sample size limitations, no requirement was placed on the minimum number of occurrences of each of E10 and E11.3. In order to avoid ambiguity in the performance estimation, patients with both E10 and E11 in their disease history were excluded, which resulted in the dataset as summarized in Table 4, column 2. In the training data, all occurrences of E10, E11, and H36 (and their children) were deleted to avoid data leakage. The selected patients substantially fitted the validated phenotype definition66.
+
+Model training and hyperparameter optimization. We fine-tuned VaDeSC-EHR end-to-end on the dataset described above, taking our pre-trained encoder as a starting point. Note that in the fine-tuning stage, the decoder could benefit from the pre-trained encoder, because weights were shared between the two. We used nested crossvalidation (NCV)30 with a 4-fold inner loop for hyperparameter optimization and a 5-fold outer loop for performance estimation. Hyperparameters were optimized using Bayesian optimization on the following hyperparameter grid:
+· learning rate of the Adam optimizer: {1e-5, 5e-5, 1e-4, 5e-4,1e-3}, · weight decay parameters of the Adam optimizer: {1e-6, 1e-5, 1e-4,
+1e-3, 1e-2, 0.1}, · dimension of latent variables: {5,10,15,20}, · shape parameter of the Weibull distribution: {1, 2, 3, 4, 5}, · dropout rate: {0.1, 0.2, 0.3, 0.4, 0.5}, · number of reshape layers: {1, 2, 3, 4, 5}.
+
+Application: progression of Crohn's disease toward intestinal obstruction Data extraction. To extract the Crohn's disease (CD) patient population, we selected patients by requiring at least one occurrence of the ICD-10 code K50 (Crohn's disease) while excluding patients with a K51 diagnosis (ulcerative colitis) and then labeled patients according to the presence of K56 ("Paralytic ileus and intestinal obstruction without hernia"). This resulted in the dataset summarized in Table 4, column 5. In the training data, all occurrences of K50 and K56 (and their children) were deleted to avoid data leakage. The selected patients substantially fitted the validated phenotype definition66.
+
+Model training and hyperparameter optimization. We fine-tuned
+
+VaDeSC-EHR end-to-end on the dataset described above, taking our
+
+pre-trained encoder as a starting point. Note that in the fine-tuning
+
+stage, the decoder could benefit from the pre-trained encoder,
+
+because weights were shared between the two. We used the pre-
+
+trained encoder as the initial weight. And applied 5-fold cross-valida-
+
+tion for hyperparameter optimization. Hyperparameters were opti-
+
+mized using Bayesian optimization, with a hyperparameter search
+
+space defined as for the diabetes model, except that we now also
+
+needed to optimize the number of clusters f2, . . . , Kg jointly with the
+
+other hyperparameters, because a ground-truth clustering was not
+
+available (K = 4, in this use case). The best combination of hyperpara-
+
+meters (including the number of clusters) was determined by
+
+encouraging concordance
+
+a low index
+
+B(CayI)esthiarnouingfhormmaaxtiimonizicnrgit:eqrioCffiffinffiffiIffi2ffiffi(ffi+BffiffiffiIffiÀffiCffi1ffiffi)ffiÀffiffiffiaffiffiBnffiffiffiIdffiCffiffiffiffinaffiffioffiffirhffimffiffiiffiÁgffiffi2ffihffi,
+
+where the BIC was normalized to the interval [0, 1] (Supplementary
+
+Fig. 17, Supplementary Table 3).
+
+Methods comparison and metrics We compared VaDeSC-EHR to a range of baseline methods: variational deep survival clustering with a multilayer perceptron (VaDeSC-MLP), semi-supervised clustering (SSC)17, survival cluster analysis (SCA)18, deep survival machines (DSM)19, and recurrent neural network-based DSM (RDSM)20, as well as k-means and regularized Cox PH as naïve baselines. In addition, to assess the influence of the survival loss on the eventual clustering, we included VaDeSC-EHR_nosurv, in which the survival loss of VaDeSC-EHR was turned off. Finally, to assess the influence of absolute age on distinguishing between ground-truth clusters, we included VaDeSC-EHR_relage (with age at first diagnosis subtracted from all elements in the age sequence). We used ICD-10based TF-IDF features as the input for all methods but RDSM and VaDeSC-EHR, which allow for directly modeling sequences of events.
+We evaluated the clustering performance of models, when possible, in terms of balanced accuracy (ACC), normalized mutual information (NMI), adjusted Rand index (ARI), and area under the receiveroperating characteristic (AUC). Clustering accuracy was computed by using the Hungarian algorithm for mapping between cluster predictions and ground-truth labels67. The statistical significance of performance difference was determined using the Mann­Whitney U test.
+For the time-to-event predictions, we used the concordance index (CI) to evaluate the ability of the methods to rank patients by their event risk. Given observed survival times ti, predicted risk scores i, and censoring indicators i, the concordance index was defined as
+
+CI
+
+=
+
+PNiP= 1iNP= 1NjP= 1Nj1=t1j <1ttij1<tij
+
+>i
+j
+
+j
+
+ð12Þ
+
+Visualization and enrichment analysis of clusters The clusters were visualized using UMAP (uniform manifold approximation and projection)68 with the Jensen­Shannon divergence69 as a
+
+Nature Communications | (2025)16:2534
+
+11
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+distance measure: JSDðPðcjxiÞ, PðcjxjÞÞ, where PðcjxÞ is the distribution across clusters c given a patient x. Cluster cohesion was measured using the silhouette coefficient70.
+We assessed the association of the clustering with sex, age, education level, location of UKB recruitment, 4 genetic principal components, fraction of hospital care data, and overall diagnosis sequence length using a Chi-squared test or a one-way ANOVA. We calculated the differential enrichment of diagnoses between clusters in two ways: (1) for individual diagnoses, and (2) for sequences of diagnoses. For the individual diagnoses, we used the ICD-10 codes as provided by the UK Biobank. For the diagnosis sequences, we first mapped the ICD-10 codes to Phecode71 and CALIBER codes72, which provided a higher level of abstraction in defining diseases. For each patient, we then identified all, potentially gapped, subsequences of three diagnoses from the EHR data, with the following constraints: (1) for duplicate diagnoses in the diagnosis sequence, we only considered the first one, (2) the subsequence contained a diagnosis of the disease under study (CD) but did not contain the selected risk event (intestinal obstruction).
+We assessed the statistical significance of the differential enrichment using logistic regression models predicting patient clusters from subsequence occurrence while adjusting for the effects of age, sex, PC1, recruitment location, and fraction of hospital care data by including these variables as covariates into the model. We corrected the resulting p-values for multiple testing using the Benjamini­Hochberg procedure and set a threshold at 0.05 for statistical significance.
+Analysis of smoking behavior We analyzed the association of smoking behavior with progression toward intestinal obstruction using multivariate Cox regression models, individually testing the hazard ratio of several variables related to smoking behavior:
+1. data field 20160 ("Ever smoked"), 2. diagnosis ICD-10 code F17.2 ("Mental and behavioral disorders
+due to use of tobacco dependence syndrome"), which is commonly interpreted as nicotine dependence73, 3. data field 20161 ("Pack years of smoking"), 4. data field 20162 ("Pack years adult smoking as a proportion of life span exposed to smoking"), 5. Current smoking status, which we defined as the union of patients identified as current smokers from data fields 1239 ("Current tobacco smoking") and 20116 ("Smoking status") 6. Previous smoking status, which we defined as patients who had ever smoked but are not currently smoking. Additionally, to make sure the patients were not smoking at the time of their first CD diagnosis, we excluded patients whose assessment date was after the date of their first CD diagnosis.
+The UK Biobank data fields we used contained data collected between 2006 and 2010.
+We adjusted the above models for the effects of age, sex, PC1, recruitment location, fraction of hospital care data, and time difference between the CD onset and the nearest smoking diagnosis (F17.2) or assessment date, by including these variables as covariates in the model.
+Genetic analysis of patient clusters We computed pathway-based polygenic risk scores (`pathway PRSs' henceforth) using PRSet74 to assess genetic differences between the patient clusters, restricting ourselves to UK Biobank participants of European ancestry74. Quality control steps were performed before calculating pathway PRSs, including filtering of SNPs with genotype missingness > 0.05, minor allele frequency (MAF) < 0.01, and with Hardy­Weinberg Equilibrium (HWE) p-value < 5 × 10-8. We focused on
+
+164 biological pathways related to Crohn's disease as retrieved from the Gene Ontology ­ Biological Process (GO-BP) database, selected based on a literature and keyword search ("IMMUNE") (Table S1)75,76. We calculated pathway PRSs for each (patient, pathway) pair using variants located in exon regions. For each pathway PRS, we then fitted a logistic regression model predicting cluster from pathway PRS, while adjusting for age, sex, PC1, recruitment location, and the fraction of hospital care data. The p-value of the resulting coefficient was calculated using a log-likelihood ratio test77 and corrected for multiple testing using the Benjamini­Hochberg procedure. For determining statistical significance, we used a threshold of 0.05.
+After the pathway-level analysis, we extracted the individual genetic variants contributing to the pathway PRS. We applied Chi-squared tests to identify the significant SNPs78 and corrected the resulting p-values for multiple testing using the Benjamini­Hochberg procedure. Finally, we fitted logistic regression models predicting cluster from mutation status, while adjusting for confounding by including age, sex, PC1, recruitment location, and the fraction of hospital care data as covariates in the models. We defined mutation status by dominant coding, thereby comparing no copy of the risk allele to at least one copy.
+Reporting summary Further information on research design is available in the Nature Portfolio Reporting Summary linked to this article.
+Data availability
+The data that support the findings of this study are available from UK Biobank (www.ukbiobank.ac.uk). Researchers can apply to use the UK Biobank resource for health-related research that is in the public interest (https://www.ukbiobank.ac.uk/register-apply/). Source data are provided with this paper.
+Code availability
+The code that supports the findings of this study is available from GitHub https://github.com/JiajunQiu/VaDeSC-EHR (https://doi.org/10. 5281/zenodo.14299831).
+References
+1. Electronic Public Health Reporting. ONC Annu. Meet. https://www. healthit.gov/sites/default/files/2018-12/ElectronicPublicHealth Reporting.pdf (2018).
+2. Parasrampuria, S. & Henry, J. Hospitals use of electronic health records data, 2015­2017. In ASTP Health IT Data Brief [Internet] 46 (Office of the Assistant Secretary for Technology Policy, Washington, DC, 2019).
+3. Rasmy, L., Xiang, Y., Xie, Z., Tao, C. & Zhi, D. Med-BERT: pretrained contextualized embeddings on large-scale structured electronic health records for disease prediction. NPJ Digit. Med. 4, 86 (2021).
+4. Li, Y. et al. BEHRT: transformer for electronic health records. Sci. Rep. 10, 7155 (2020).
+5. Rongali, S. et al. Learning latent space representations to predict patient outcomes: model development and validation. J. Med. Internet Res. 22, e16374 (2020).
+6. Vaswani, A. et al. Attention is all you need. In Proceedings of the 31st International Conference on Neural Information Processing Systems (NIPS'17) 6000­6010 (Curran Associates Inc., Red Hook, NY, 2017).
+7. Devlin, J., Chang, M. W., Lee, K. & Toutanova, K. BERT: pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Vol. 1, 4171­4186 (Association for Computational Linguistics, 2019).
+8. Placido, D. et al. A deep learning algorithm to predict risk of pancreatic cancer from disease trajectories. Nat. Med 29, 1113­1122 (2023).
+
+Nature Communications | (2025)16:2534
+
+12
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+9. Achiam, J. et al. GPT-4 technical report. arXiv preprint arXiv:2303.08774 (2023).
+10. Chung, P. et al. Large language model capabilities in perioperative risk prediction and prognostication. JAMA Surg. 159, 928­937 (2024).
+11. de Jong, J. et al. Towards realizing the vision of precision medicine: AI based prediction of clinical drug response. Brain 144, 1738­1750 (2021).
+12. You, N., He, S., Wang, X., Zhu, J. & Zhang, H. Subtype classification and heterogeneous prognosis model construction in precision medicine. Biometrics 74, 814­822 (2018).
+13. Kumar, M., Garand, M. & Al Khodor, S. Integrating omics for a better understanding of inflammatory bowel disease: a step towards personalized medicine. J. Transl. Med. 17, 419 (2019).
+14. Castela Forte, J. et al. Identifying and characterizing high-risk clusters in a heterogeneous ICU population with deep embedded clustering. Sci. Rep. 11, 12109 (2021).
+15. Bretos-Azcona, P. E., Sanchez-Iriso, E. & Cabases Hita, J. M. Tailoring integrated care services for high-risk patients with multiple chronic conditions: a risk stratification approach using cluster analysis. BMC Health Serv. Res. 20, 806 (2020).
+16. Tanniou, J., van der Tweel, I., Teerenstra, S. & Roes, K. C. Subgroup analyses in confirmatory clinical trials: time to be specific about their purposes. BMC Med. Res. Methodol. 16, 20 (2016).
+17. Bair, E. & Tibshirani, R. Semi-supervised methods to predict patient survival from gene expression data. PLoS Biol. 2, E108 (2004).
+18. Chapfuwa, P., Li, C., Mehta, N., Carin, L. & Henao, R. in Proc. ACM Conference on Health, Inference, and Learning 60­68 (Association for Computing Machinery, Toronto, ON, Canada, 2020).
+19. Nagpal, C., Li, X. & Dubrawski, A. Deep survival machines: fully parametric survival regression and representation learning for censored data with competing risks. IEEE J. Biomed. Health Inf. 25, 3163­3175 (2021).
+20. Nagpal, C., Jeanselme, V. & Dubrawski, A. W. in SPACA. 21. Manduchi, L. et al. A deep variational approach to clustering sur-
+vival data https://doi.org/10.3929/ethz-b-000536597 (2022). 22. Kingma, D. P. & Welling, M. Auto-encoding variational bayes. Con-
+ference proceedings. International Conference on Learning Representations (ICLR) (2014). 23. Jiang, Z., Zheng, Y., Tan, H., Tang, B. & Zhou, H. in Proc. 26th International Joint Conference on Artificial Intelligence 1965­1972 (AAAI Press, Melbourne, Australia, 2017). 24. Landi, I. et al. Deep representation learning of electronic health records to unlock patient stratification at scale. NPJ Digit. Med. 3, 96 (2020). 25. de Jong, J. et al. Deep learning for clustering of multivariate clinical patient trajectories with missing values. Gigascience 8, giz134 (2019). 26. Higgins, I. et al. -VAE: learning basic visual concepts with a constrained variational framework. In International Conference on Learning Representations (ICLR) (2017). 27. Inshaw, J. R. J. et al. Analysis of overlapping genetic association in type 1 and type 2 diabetes. Diabetologia 64, 1342­1347 (2021). 28. Nyaga, D. M., Vickers, M. H., Jefferies, C., Fadason, T. & O'Sullivan, J. M. Untangling the genetic link between type 1 and type 2 diabetes using functional genomics. Sci. Rep. 11, 13871 (2021). 29. Zaccardi, F., Webb, D. R., Yates, T. & Davies, M. J. Pathophysiology of type 1 and type 2 diabetes mellitus: a 90-year perspective. Postgrad. Med. J. 92, 63­69 (2016). 30. Stone, M. Cross-validatory choice and assessment of statistical predictions. J. R. Stat. Soc. Ser. B Methodol. 36, 111­133 (1974). 31. Lin, X. et al. Intestinal strictures in Crohn's disease: a 2021 update. Ther. Adv. Gastroenterol. 15, 17562848221104951 (2022).
+
+32. Sinopoulou, V. et al. Interventions for the management of abdominal pain in Crohn's disease and inflammatory bowel disease. Cochrane Database Syst. Rev. 11, CD013531 (2021).
+33. Schwartzberg, D. M., Brandstetter, S. & Grucela, A. L. Crohn's disease of the esophagus, duodenum, and stomach. Clin. Colon Rectal Surg. 32, 231­242 (2019).
+34. Yueying, C., Yu Fan, W. & Jun, S. Anemia and iron deficiency in Crohn's disease. Expert Rev. Gastroenterol. Hepatol. 14, 155­162 (2020).
+35. Andersen, N. N. & Jess, T. Risk of cardiovascular disease in inflammatory bowel disease. World J. Gastrointest. Pathophysiol. 5, 359­365 (2014).
+36. Abomhya, A. et al. Iron deficiency anemia: an overlooked complication of Crohn's disease. J. Hematol. 11, 55­61 (2022).
+37. Cai, W., Cagan, A., He, Z. & Ananthakrishnan, A. N. A phenome-wide analysis of healthcare costs associated with inflammatory bowel diseases. Dig. Dis. Sci. 66, 760­767 (2021).
+38. Wils, P., Caron, B., D'Amico, F., Danese, S. & Peyrin-Biroulet, L. Abdominal pain in inflammatory bowel diseases: a clinical challenge. J. Clin. Med. 11, 4269 (2022).
+39. van Erp, S. J. et al. Classifying back pain and peripheral joint complaints in inflammatory bowel disease patients: a prospective longitudinal follow-up study. J. Crohns Colitis 10, 166­175 (2016).
+40. Georgakopoulou, V. E. et al. Role of pulmonary function testing in inflammatory bowel diseases (review). Med. Int. 2, 25 (2022).
+41. Lu, D. G., Ji, X. Q., Liu, X., Li, H. J. & Zhang, C. Q. Pulmonary manifestations of Crohn's disease. World J. Gastroenterol. 20, 133­141 (2014).
+42. Lakatos, P. L., Szamosi, T. & Lakatos, L. Smoking in inflammatory bowel diseases: good, bad or ugly? World J. Gastroenterol. 13, 6134­6139 (2007).
+43. Piovani, D. et al. Ethnic differences in the smoking-related risk of inflammatory bowel disease: a systematic review and metaanalysis. J. Crohns Colitis 15, 1658­1678 (2021).
+44. Dai, C., Jiang, M. & Sun, M. J. Innate immunity and adaptive immunity in Crohn's disease. Ann. Transl. Med. 3, 34 (2015).
+45. Geremia, A., Biancheri, P., Allan, P., Corazza, G. R. & Di Sabatino, A. Innate and adaptive immunity in inflammatory bowel disease. Autoimmun. Rev. 13, 3­10 (2014).
+46. Sutcliffe, S. et al. Novel microbial-based immunotherapy approach for Crohn's disease. Front. Med. (Lausanne) 6, 170 (2019).
+47. Trynka, G. et al. Dense genotyping identifies and localizes multiple common and rare variant association signals in celiac disease. Nat. Genet. 43, 1193­1201 (2011).
+48. Shi, Y. et al. Inflammatory bowel disease and celiac disease: a bidirectional Mendelian randomization study. Front. Genet. 13, 928944 (2022).
+49. Ochoa, D. et al. The next-generation Open Targets Platform: reimagined, redesigned, rebuilt. Nucleic Acids Res. 51, D1353­D1359 (2023).
+50. Gold, S. L. et al. Micronutrients and their role in inflammatory bowel disease: function, assessment, supplementation, and impact on clinical outcomes including muscle health. Inflamm. Bowel Dis. 29, 487­501 (2023).
+51. de Lange, K. M. et al. Genome-wide association study implicates immune activation of multiple integrin genes in inflammatory bowel disease. Nat. Genet. 49, 256­261 (2017).
+52. Andlauer, T. F. M. et al. Treatment- and population-specific genetic risk factors for anti-drug antibodies against interferon-beta: a GWAS. BMC Med. 18, 298 (2020).
+53. Murdoch, D. & Lyseng-Williamson, K. A. Spotlight on subcutaneous recombinant interferon-beta-1a (Rebif) in relapsing-remitting multiple sclerosis. BioDrugs 19, 323­325 (2005).
+
+Nature Communications | (2025)16:2534
+
+13
+
+Article
+
+https://doi.org/10.1038/s41467-025-56625-z
+
+54. Pena Rossi, C. et al. Interferon beta-1a for the maintenance of remission in patients with Crohn's disease: results of a phase II dose-finding study. BMC Gastroenterol. 9, 22 (2009).
+55. Abul-Husn, N. S. & Kenny, E. E. Personalized medicine and the power of electronic health records. Cell 177, 58­69 (2019).
+56. Birkenbihl, C., de Jong, J., Yalchyk, I. & Fröhlich, H. Deep learningbased patient stratification for prognostic enrichment of clinical dementia trials. Brain Commun. 6, fcae445 (2024).
+57. U. S. Food and Drug Administration. Enrichment strategies for clinical trials to support approval of human drugs and biological products - guidance for industry https://doi.org/https://www.fda. gov/regulatory-information/search-fda-guidance-documents/ enrichment-strategies-clinical-trials-support-approval-humandrugs-and-biological-products (2019).
+58. Gui, N., Ge, D. & Hu, Z. in Proc. Thirty-Third AAAI Conference on Artificial Intelligence and Thirty-First Innovative Applications of Artificial Intelligence Conference and Ninth AAAI Symposium on Educational Advances in Artificial Intelligence Article 455 (AAAI Press, Honolulu, Hawaii, USA, 2019).
+59. Choi, E., Bahadori, M. T., Song, L., Stewart, W. F. & Sun, J. GRAM: graph-based attention model for healthcare representation learning. KDD 2017, 787­795 (2017).
+60. Munoz-Farre, A., Rose, H. & Cakiroglu, S. A. sEHR-CE: language modelling of structured EHR data for efficient and generalizable patient cohort expansion. In NeurIPS 2022 Workshop on Learning from Time Series for Health (2022).
+61. Stroganov, O. et al. Mapping of UK Biobank clinical codes: challenges and possible solutions. PLoS ONE 17, e0275816 (2022).
+62. Papez, V. et al. Transforming and evaluating the UK Biobank to the OMOP common data model for COVID-19 research and beyond. J. Am. Med Inf. Assoc. 30, 103­111 (2022).
+63. Butler, A. M., Nickel, K. B., Overman, R. A. & Brookhart, M. A. in Databases for Pharmacoepidemiological Research (eds Sturkenboom, M. & Schink, T.) 243­251 (Springer International Publishing, 2021).
+64. Sudlow, C. et al. UK biobank: an open access resource for identifying the causes of a wide range of complex diseases of middle and old age. PLoS Med. 12, e1001779 (2015).
+65. Hassani, A., Walton, S., Shah, N., Abuduweili, A., Li, J. & Shi, H. Escaping the big data paradigm with compact transformers. arXiv preprint arXiv:2104.05704) (2021).
+66. Kirby, J. C. et al. PheKB: a catalog and workflow for creating electronic phenotype algorithms for transportability. J. Am. Med. Inf. Assoc. 23, 1046­1052 (2016).
+67. Kuhn, H. W. The Hungarian method for the assignment problem. Nav. Res. Logist. Q. 2, 83­97 (1955).
+68. McInnes, L. & Healy, J. UMAP: uniform manifold approximation and projection for dimension reduction. Preprint at https://arxiv.org/ abs/1802.03426 (2018).
+69. Nielsen, F. On the Jensen-Shannon symmetrization of distances relying on abstract means. Entropy 21, 485 (2019).
+70. Rousseeuw, P. J. Silhouettes: a graphical aid to the interpretation and validation of cluster analysis. J. Comput. Appl. Math. 20, 53­65 (1987).
+71. Denny, J. C. et al. Systematic comparison of phenome-wide association study of electronic medical record data and genome-wide association study data. Nat. Biotechnol. 31, 1102­1110 (2013).
+72. Kuan, V. et al. A chronological map of 308 physical and mental health conditions from 4 million individuals in the English National Health Service. Lancet Digit. Health 1, e63­e77 (2019).
+73. Rajagopal, V. M. et al. Rare coding variants in CHRNB2 reduce the likelihood of smoking. Nat. Genet. 55, 1138­1148 (2023).
+74. Choi, S. W. et al. PRSet: pathway-based polygenic risk score analyses and software. PLoS Genet. 19, e1010624 (2023).
+
+75. Ntunzwenimana, J. C. et al. Functional screen of inflammatory bowel disease genes reveals key epithelial functions. Genome Med. 13, 181 (2021).
+76. Michail, S., Bultron, G. & Depaolo, R. W. Genetic variants associated with Crohn's disease. Appl. Clin. Genet. 6, 25­32 (2013).
+77. Buse, A. The likelihood ratio, wald, and Lagrange multiplier tests: an expository note. Am. Stat. 36, 153­157 (1982).
+78. Sei, Y. & Ohsuga, A. Privacy-preserving chi-squared test of independence for small samples. BioData Min. 14, 6 (2021).
+Acknowledgements
+This research has been conducted using UK Biobank, a major biomedical database (www.ukbiobank.ac.uk). This research has been conducted using UK Biobank resources under Application Number 57952. We thank all the employees from Boehringer Ingelheim ­ Global Computational Biology and Digital Sciences for their support during the project.
+Author contributions
+Model design: J.Q., J.d.J.; method development: J.Q.; data analysis: J.Q., Y.H.; definition of CD application: J.Q., L.L., C.W., J.S., J.d.J.; writing the manuscript: J.Q., J.d.J., A.M.E., I.B.; definition and supervision of research project: J.d.J.; providing assistance to the project: J.A., B.A.B., S.G., P.K., S.M., B.N.; funding the project: Z.D., J.N.J.; All authors read, edited, and approved the article.
+Competing interests
+The authors declare no competing interests.
+Additional information
+Supplementary information The online version contains supplementary material available at https://doi.org/10.1038/s41467-025-56625-z.
+Correspondence and requests for materials should be addressed to Johann de Jong.
+Peer review information Nature Communications thanks the anonymous reviewer(s) for their contribution to the peer review of this work. A peer review file is available.
+Reprints and permissions information is available at http://www.nature.com/reprints
+Publisher's note Springer Nature remains neutral with regard to jurisdictional claims in published maps and institutional affiliations.
+Open Access This article is licensed under a Creative Commons Attribution 4.0 International License, which permits use, sharing, adaptation, distribution and reproduction in any medium or format, as long as you give appropriate credit to the original author(s) and the source, provide a link to the Creative Commons licence, and indicate if changes were made. The images or other third party material in this article are included in the article's Creative Commons licence, unless indicated otherwise in a credit line to the material. If material is not included in the article's Creative Commons licence and your intended use is not permitted by statutory regulation or exceeds the permitted use, you will need to obtain permission directly from the copyright holder. To view a copy of this licence, visit http://creativecommons.org/ licenses/by/4.0/.
+© The Author(s) 2025
+
+Nature Communications | (2025)16:2534
+
+14
+
+
