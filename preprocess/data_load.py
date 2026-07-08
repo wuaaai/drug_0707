@@ -1,5 +1,12 @@
 import os
+import sys
 import dill
+
+# pickle 文件中的对象引用了顶层模块名（无 preprocess 前缀），需确保 preprocess 目录在 path 中
+_preprocess_dir = os.path.dirname(os.path.abspath(__file__))
+if _preprocess_dir not in sys.path:
+    sys.path.insert(0, _preprocess_dir)
+
 from preprocess.drug_recommendation_mimic34_fn import *
 from preprocess.diag_prediction_mimic34_fn import *
 
