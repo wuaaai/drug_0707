@@ -28,6 +28,62 @@ from utils import prepare_labels, get_sample_loader, visit_level, code_level, ca
 #         train_loss += loss.detach().cpu().numpy()
 #     return train_loss
 # 在训练循环中修改以下部分（training函数中）：
+from itertools import zip_longest
+import torch
+import torch.nn.functional as F
+from tqdm import tqdm
+import traceback
+
+
+def _get_chapter_info_from_batch(data, model):
+    """从 batch 数据提取章节分布（用于 TrajectoryCare 路由）。
+
+    数据集中的 conditions 是 CCS/CCSCM 编码，通过 map_ccs_to_expert 映射。
+    """
+    if not hasattr(model, 'router'):
+        return None, None
+
+    from models.expert_selectv2 import map_ccs_to_expert
+
+    if type(data) == dict:
+        conditions_list = data.get('conditions', [])
+        B = len(data.get('visit_id', []))
+    else:
+        conditions_list = data[0].get('conditions', []) if len(data) > 0 else []
+        B = len(data)
+
+    num_experts = model.num_chapters
+    device = model.device
+    chapter_dists = torch.zeros(B, num_experts, device=device)
+
+    for b in range(B):
+        if type(data) == dict:
+            patient_conds = conditions_list[b] if b < len(conditions_list) else []
+        else:
+            patient_conds = conditions_list[b] if b < len(conditions_list) else []
+
+        # patient_conds 可能是 [[v1], [v2], ...]（多就诊）或 ['c1', 'c2']（单就诊）
+        if isinstance(patient_conds, list) and len(patient_conds) > 0:
+            if isinstance(patient_conds[0], list):
+                # 多就诊：统计所有历史就诊（排除最后一个=当前就诊的标签）
+                conds = []
+                for visit_codes in patient_conds[:-1]:
+                    conds.extend(visit_codes)
+            else:
+                conds = patient_conds
+            for code in conds:
+                eid = map_ccs_to_expert(str(code))
+                if 0 <= eid < num_experts:
+                    chapter_dists[b, eid] += 1
+
+        row_sum = chapter_dists[b].sum()
+        if row_sum > 0:
+            chapter_dists[b] /= row_sum
+
+    num_visits = torch.ones(B, device=device)
+    return chapter_dists, num_visits
+
+
 def training(data_loader, model, label_tokenizer, optimizer, label_name, log_outmemory_txt_path, device):
     model.train()
     train_loss = 0
@@ -43,7 +99,12 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
             # 开始检测是否有nan，会显著的增加运行时间
             # with autograd.detect_anomaly():
             try:
-                model_output = model(data)
+                # TrajectoryCare 需要章节分布信息
+                if hasattr(model, 'router'):
+                    chapter_dist, num_visits = _get_chapter_info_from_batch(data, model)
+                    model_output = model(data, chapter_dist, num_visits)
+                else:
+                    model_output = model(data)
                 if isinstance(model_output, (tuple, list)):
                     out = model_output[0]   # 第一个是 logits
                     # expert_weights = model_output[1] # 训练时用不到

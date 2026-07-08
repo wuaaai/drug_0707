@@ -9,6 +9,15 @@ from torch.optim.lr_scheduler import StepLR
 from typing import Any, Dict, List, Tuple, Optional, Union
 from datetime import datetime
 from models.Base2_1 import Base2_1
+from models.TrajectoryCare import TrajectoryCare
+from preprocess.icd_chapter_mapping import map_code_to_chapter
+from models.trajectory_mining.prototype_discovery import (
+    discover_prototypes_spectral, assign_patients_to_prototypes, save_prototypes
+)
+from preprocess.trajectory_data_builder import (
+    extract_chapter_sequences_from_dataset, compute_chapter_patient_matrix,
+    print_chapter_statistics, get_trajectory_features
+)
 import os
 import time
 
@@ -21,6 +30,7 @@ def main(args):
         
     set_random_seed(args.seed)
     print('{}--{}--{}--{}'.format(args.model, args.task, args.dataset, args.batch_size))
+    set_current_dataset(args.dataset)  # 必须在任何调用 map_ccs_to_expert 之前设置
     cuda_id = "cuda:" + str(args.device_id)
     device = torch.device(cuda_id if torch.cuda.is_available() else "cpu")
 
@@ -36,6 +46,42 @@ def main(args):
     # 模型定义
     if args.model == 'Base2_1':
         model = Base2_1(Tokenizers_visit_event, Tokenizers_monitor_event, label_size, device, dropout=args.dropout)
+    elif args.model == 'TrajectoryCare':
+        # --- 轨迹原型发现 ---
+        print("预计算轨迹原型...")
+        all_seqs, trans_matrix, num_chapters = extract_chapter_sequences_from_dataset(task_dataset, args)
+        chapter_labels, num_prototypes, proto_info = discover_prototypes_spectral(
+            trans_matrix, min_k=4, max_k=min(12, num_chapters)
+        )
+        print(print_chapter_statistics(all_seqs, trans_matrix, num_chapters, args.dataset))
+        print(f"发现 {num_prototypes} 个轨迹原型")
+        for k, v in proto_info['prototypes'].items():
+            print(f"  原型 {k}: 章节数={v['num_chapters']}, 章节={v['chapters']}")
+
+        # 预计算患者→章节分布映射
+        patient_chapter_dist = compute_chapter_patient_matrix(all_seqs, num_chapters)
+        patient_to_idx = {pid: i for i, pid in enumerate(task_dataset.patient_to_index.keys())}
+
+        # 构建 patient_id → (chapter_dist, num_visits) 查找表
+        patient_chapter_info = {}
+        for i, pid in enumerate(task_dataset.patient_to_index.keys()):
+            if i < len(all_seqs):
+                patient_chapter_info[str(pid)] = (
+                    torch.tensor(patient_chapter_dist[i], dtype=torch.float32),
+                    len(all_seqs[i]),  # num_visits
+                )
+
+        model = TrajectoryCare(
+            Tokenizers_visit_event=Tokenizers_visit_event,
+            Tokenizers_monitor_event=Tokenizers_monitor_event,
+            output_size=label_size,
+            device=device,
+            chapter_labels=chapter_labels,
+            num_prototypes=num_prototypes,
+            num_chapters=num_chapters,
+            embedding_dim=args.dim,
+            dropout=args.dropout,
+        )
     else:
         print("没有这个模型")
         return
@@ -62,6 +108,10 @@ def main(args):
     folder_path = 'logs/{}/{}_{}_batchsize_{}_epochs_{}_{}'.format(log_date, args.model, args.dataset, args.batch_size, args.epochs, args.notes)
     os.makedirs(folder_path, exist_ok=True)
     ckpt_path = f'{folder_path}/best_model.ckpt'
+
+    # 保存轨迹原型（如果是 TrajectoryCare 模型）
+    if args.model == 'TrajectoryCare':
+        save_prototypes(proto_info, f'{folder_path}/trajectory_prototypes.json')
     png_path = f'{folder_path}/loss.png'
     txt_path = f'{folder_path}/final_result.txt'
     log_txt_path = f'{folder_path}/log.txt'
@@ -94,9 +144,9 @@ def main(args):
             print(f'\nTraining Epoch {epoch + 1}/{args.epochs}')
             model = model.to(device)
 
-            train_loss = training(args, train_loader, model, label_tokenizer, optimizer, label_name, log_outmemory_txt_path, device)
+            train_loss = training(train_loader, model, label_tokenizer, optimizer, label_name, log_outmemory_txt_path, device)
             val_loss, metrics, code_level_results, visit_level_results, sensitivity, specificity \
-                = evaluating(args, val_loader, model, label_tokenizer, label_name, device)
+                = evaluating(val_loader, model, label_tokenizer, label_name, device)
             
             if early_stopper(val_loss):
                 print(f"Early stopping triggered at epoch {epoch + 1}")
@@ -172,7 +222,7 @@ def main(args):
 
     # 开始测试
     sample_size = 0.8  # 国际惯例选取0.8
-    outstring = testing(args, test_loader, args.test_epochs, model, label_tokenizer, sample_size, label_name, device)
+    outstring = testing(test_loader, args.test_epochs, model, label_tokenizer, sample_size, label_name, device)
 
     # 输出结果
     print("\nFinal test result:")
@@ -189,7 +239,7 @@ def main(args):
     model.load_state_dict(best_model_jaccard)
     model = model.to(device)
 
-    outstring_jaccard = testing(args, test_loader, args.test_epochs, model, label_tokenizer, sample_size, label_name, device)
+    outstring_jaccard = testing(test_loader, args.test_epochs, model, label_tokenizer, sample_size, label_name, device)
 
     # 输出结果
     print("\nFinal test result(jaccard):")
@@ -209,7 +259,8 @@ if __name__ == '__main__':
     parser.add_argument('--test_epochs', type=int, default=10, help='Number of epochs to test.')
     parser.add_argument('--lr', type=float, default=5e-4, help='learning rate.')
     parser.add_argument('--model', type=str, default="Base2_1",
-                        help='Base2_1')
+                        choices=['Base2_1', 'TrajectoryCare'],
+                        help='Base2_1, TrajectoryCare')
     parser.add_argument('--device_id', type=int, default=0, help="选gpu编号的")
     parser.add_argument('--seed', type=int, default=222)
     parser.add_argument('--dataset', type=str, default="mimic3", choices=['mimic3', 'mimic4'])

@@ -462,6 +462,27 @@ class AsymmetricLossOptimized(nn.Module):
 
         loss = - (los_pos + los_neg)
         return loss.mean()
+
+
+class EarlyStopper:
+    """早停：patience 个 epoch 内验证指标未改善 min_delta 以上则停止。"""
+    def __init__(self, patience=10, min_delta=0.0, mode='min'):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.mode = mode
+        self.counter = 0
+        self.best_value = float('inf') if mode == 'min' else float('-inf')
+
+    def __call__(self, value):
+        improved = (value < self.best_value - self.min_delta) if self.mode == 'min' else (value > self.best_value + self.min_delta)
+        if improved:
+            self.best_value = value
+            self.counter = 0
+        else:
+            self.counter += 1
+        return self.counter >= self.patience
+
+
 _current_dataset_name = None
 _is_set_by_main = False
 def set_current_dataset(name: str):
