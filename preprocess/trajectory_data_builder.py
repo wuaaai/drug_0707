@@ -62,21 +62,24 @@ def extract_chapter_sequences_from_dataset(task_dataset, args) -> Tuple[List[Lis
     """
     num_experts = 19 if args.dataset == 'mimic3' else 22
     all_seqs = []
+    multi_visit_count = 0
+    single_visit_count = 0
 
     for sample in task_dataset.samples:
-        # task_dataset.samples 中每个 sample 是一个 dict，
-        # 每个 key (conditions, procedures等) 的值是嵌套列表 [[v1], [v2], ...]
-        # 我们需要从 conditions 提取就诊数
         conditions = sample.get('conditions', [])
         if not isinstance(conditions, list) or len(conditions) == 0:
             continue
 
-        # conditions 可能是 [['code1', 'code2'], ['code3']]（多就诊）
-        # 或者 ['code1', 'code2']（单就诊）
         if isinstance(conditions[0], list):
-            visit_conds = conditions  # 已是嵌套列表
+            visit_conds = conditions
         else:
-            visit_conds = [conditions]  # 单就诊包装
+            visit_conds = [conditions]
+
+        # 只保留 ≥2 次就诊的患者，单次就诊无轨迹可分析
+        if len(visit_conds) < 2:
+            single_visit_count += 1
+            continue
+        multi_visit_count += 1
 
         visit_expert_list = []
         for visit_codes in visit_conds:
@@ -88,9 +91,10 @@ def extract_chapter_sequences_from_dataset(task_dataset, args) -> Tuple[List[Lis
                 expert_ids.add(eid)
             visit_expert_list.append(sorted(list(expert_ids)))
 
-        if len(visit_expert_list) >= 1:
+        if len(visit_expert_list) >= 2:
             all_seqs.append(visit_expert_list)
 
+    print(f"轨迹发现: 单就诊={single_visit_count}, 多就诊={multi_visit_count}, 有效轨迹={len(all_seqs)}")
     trans_matrix = build_transition_matrix(all_seqs, num_experts)
     return all_seqs, trans_matrix, num_experts
 

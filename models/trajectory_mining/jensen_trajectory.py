@@ -1,0 +1,401 @@
+"""
+Jensen 式 CCS 级轨迹挖掘。
+
+方法（参考 Jensen et al., 2014, Nature Communications）：
+1. 从多就诊患者中收集 CCS 编码转移对 (A → B)
+2. 统计检验筛选显著方向性转移对（RR + 二项检验 + Bonferroni 校正）
+3. 贪心拼接成 3-4 步轨迹
+4. Jaccard 相似度 + 层次聚类 → 轨迹原型
+
+与章节级方法的本质区别：直接在 CCS 编码（~270 种）上操作，不归约到 19 个章节。
+"""
+
+import numpy as np
+from typing import List, Dict, Tuple, Set, Optional
+from collections import defaultdict, Counter
+from scipy.stats import binomtest
+from itertools import combinations
+import json
+
+
+def collect_transitions(
+    all_seqs: List[List[List[str]]],
+    min_occurrence: int = 5
+) -> Dict[Tuple[str, str], Dict]:
+    """从多就诊患者的 CCS 序列中收集所有诊断转移对。
+
+    Args:
+        all_seqs: 每位患者的 visit 级 CCS 编码序列 [[['49','98'], ['108']], ...]
+        min_occurrence: 转移对最小出现次数
+
+    Returns:
+        transitions: {(A, B): {'count': N_AB, 'A_total': N_A, 'B_total': N_B}}
+    """
+    # 统计转移对
+    pair_counts = Counter()
+    code_counts = Counter()
+
+    for patient_seq in all_seqs:
+        for t in range(len(patient_seq) - 1):
+            current_codes = set(patient_seq[t])
+            next_codes = set(patient_seq[t + 1])
+
+            for code in current_codes:
+                code_counts[code] += 1
+
+            for a in current_codes:
+                for b in next_codes:
+                    if a != b:
+                        pair_counts[(a, b)] += 1
+
+    # 只保留足够频繁的转移对
+    transitions = {}
+    for (a, b), count in pair_counts.items():
+        if count >= min_occurrence:
+            transitions[(a, b)] = {
+                'count': count,
+                'A_total': code_counts[a],
+                'B_total': code_counts[b],
+            }
+
+    return transitions
+
+
+def compute_rr_and_significance(
+    transitions: Dict,
+    total_transitions: int,
+    alpha: float = 0.05
+) -> List[Dict]:
+    """计算 Relative Risk 和统计显著性。
+
+    RR = P(B|A) / P(B|not A)
+    二项检验 H0: P(B|A) <= P(B)  (A 不增加 B 的风险)
+
+    Args:
+        transitions: collect_transitions 的输出
+        total_transitions: 总转移次数
+        alpha: 显著性水平（Bonferroni 校正前）
+
+    Returns:
+        significant_pairs: 通过检验的显著方向性转移对
+    """
+    n_pairs = len(transitions)
+    corrected_alpha = alpha / n_pairs  # Bonferroni
+
+    significant = []
+    for (a, b), stats in transitions.items():
+        n_ab = stats['count']
+        n_a = stats['A_total']
+        n_b = stats['B_total']
+
+        # P(B|A) = N_AB / N_A
+        p_b_given_a = n_ab / n_a if n_a > 0 else 0
+        # P(B|not A) = (N_B - N_AB) / (total - N_A)
+        n_not_a = total_transitions - n_a
+        n_b_not_a = n_b - n_ab
+        p_b_given_not_a = n_b_not_a / n_not_a if n_not_a > 0 else 0
+
+        # RR = P(B|A) / P(B|not A)
+        rr = p_b_given_a / p_b_given_not_a if p_b_given_not_a > 0 else float('inf')
+
+        # 二项检验: 在 N_A 次试验中观察到 >= N_AB 次 B 的概率
+        # H0: P(B) = N_B / total
+        p_b = n_b / total_transitions if total_transitions > 0 else 0
+        try:
+            test = binomtest(n_ab, n_a, p_b, alternative='greater')
+            p_value = test.pvalue
+        except Exception:
+            p_value = 1.0
+
+        # 方向性检验: is A→B significantly more likely than B→A?
+        reverse_count = 0
+        if (b, a) in transitions:
+            reverse_count = transitions[(b, a)]['count']
+
+        # A→B 显著多于 B→A？
+        directional = n_ab > reverse_count
+
+        if p_value < corrected_alpha and rr > 1.0 and directional:
+            significant.append({
+                'from': a,
+                'to': b,
+                'count': n_ab,
+                'rr': round(rr, 2),
+                'p_value': p_value,
+                'directional': directional,
+                'reverse_count': reverse_count,
+            })
+
+    # 按 RR 降序排列
+    significant.sort(key=lambda x: -x['rr'])
+    return significant
+
+
+def stitch_trajectories(
+    pairs: List[Dict],
+    max_length: int = 4,
+    min_patients: int = 3
+) -> List[Dict]:
+    """贪心拼接显著转移对为更长轨迹。
+
+    Args:
+        pairs: 显著方向性转移对列表
+        max_length: 最大轨迹长度（步数）
+        min_patients: 轨迹最少患者数
+
+    Returns:
+        trajectories: [{'codes': [A,B,C], 'steps': [...], 'total_count': N}, ...]
+    """
+    # 构建转移图
+    edges = defaultdict(list)
+    for p in pairs:
+        edges[p['from']].append(p)
+
+    trajectories = []
+    visited_pairs = set()
+
+    for p in pairs:
+        if (p['from'], p['to']) in visited_pairs:
+            continue
+
+        traj_codes = [p['from'], p['to']]
+        traj_steps = [p]
+        visited_pairs.add((p['from'], p['to']))
+        total_count = p['count']
+
+        # 向后延伸
+        current = p['to']
+        for _ in range(max_length - 2):
+            candidates = [e for e in edges.get(current, [])
+                         if (e['from'], e['to']) not in visited_pairs]
+            if not candidates:
+                break
+            best = max(candidates, key=lambda e: e['rr'])
+            traj_codes.append(best['to'])
+            traj_steps.append(best)
+            visited_pairs.add((best['from'], best['to']))
+            total_count = min(total_count, best['count'])
+            current = best['to']
+
+        if len(traj_codes) >= 2 and total_count >= min_patients:
+            trajectories.append({
+                'codes': traj_codes,
+                'steps': [{'from': s['from'], 'to': s['to'], 'rr': s['rr']} for s in traj_steps],
+                'total_count': total_count,
+                'length': len(traj_codes),
+            })
+
+    trajectories.sort(key=lambda t: -t['total_count'])
+    return trajectories
+
+
+def cluster_trajectories(
+    trajectories: List[Dict],
+    min_clusters: int = 5,
+    max_clusters: int = 15,
+    max_code_freq: float = 0.5
+) -> Tuple[np.ndarray, int, Dict]:
+    """用 Jaccard 相似度 + 层次聚类将轨迹分组为原型。
+
+    Args:
+        trajectories: stitch_trajectories 的输出
+        min_clusters, max_clusters: 聚类数范围
+
+    Returns:
+        labels: 每条轨迹的簇标签
+        best_k: 最优簇数
+        info: 聚类详情
+    """
+    from sklearn.metrics import silhouette_score
+
+    n = len(trajectories)
+    if n < min_clusters * 2:
+        # 轨迹太少，不分簇
+        labels = np.zeros(n, dtype=int)
+        return labels, 1, {'error': 'Too few trajectories'}
+
+    # 过滤高频通用编码（出现在 >max_code_freq 轨迹中的编码）
+    code_doc_freq = Counter()
+    for t in trajectories:
+        for code in set(t['codes']):
+            code_doc_freq[code] += 1
+    n_trajs = len(trajectories)
+    filtered_codes = {code for code, freq in code_doc_freq.items()
+                      if freq / n_trajs > max_code_freq}
+    if filtered_codes:
+        print(f"  过滤 {len(filtered_codes)} 个高频通用编码: {sorted(filtered_codes)[:10]}...")
+
+    # 构建 TF-IDF 加权 Jaccard 相似度
+    code_sets = []
+    for t in trajectories:
+        fs = set(t['codes']) - filtered_codes
+        if not fs:
+            fs = set(t['codes'])
+        code_sets.append(fs)
+
+    idf = {}
+    for code in set().union(*code_sets):
+        df = sum(1 for s in code_sets if code in s)
+        idf[code] = np.log((n + 1) / (df + 1)) + 1
+
+    similarity = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            common = code_sets[i] & code_sets[j]
+            all_codes = code_sets[i] | code_sets[j]
+            if not all_codes:
+                continue
+            w_common = sum(idf.get(c, 1) for c in common)
+            w_all = sum(idf.get(c, 1) for c in all_codes)
+            sim = w_common / w_all if w_all > 0 else 0
+            similarity[i, j] = sim
+            similarity[j, i] = sim
+
+    # 层次聚类
+    from sklearn.cluster import AgglomerativeClustering
+    best_k = min_clusters
+    best_score = -1
+    best_labels = None
+    distance = 1 - similarity
+
+    for k in range(min_clusters, min(max_clusters + 1, n)):
+        try:
+            clustering = AgglomerativeClustering(
+                n_clusters=k, metric='precomputed', linkage='average'
+            )
+            labels = clustering.fit_predict(distance)
+            if len(set(labels)) < 2:
+                continue
+            score = silhouette_score(distance, labels, metric='precomputed')
+            if score > best_score:
+                best_score = score
+                best_k = k
+                best_labels = labels.copy()
+        except Exception:
+            continue
+
+    if best_labels is None:
+        best_labels = np.zeros(n, dtype=int)
+        best_k = 1
+
+    # 构建原型描述
+    prototypes = {}
+    for label in range(best_k):
+        mask = best_labels == label
+        cluster_trajs = [trajectories[i] for i in range(n) if mask[i]]
+        # 收集该原型中的高频 CCS 编码
+        code_freq = Counter()
+        for t in cluster_trajs:
+            for code in t['codes']:
+                code_freq[code] += 1
+
+        prototypes[int(label)] = {
+            'num_trajectories': len(cluster_trajs),
+            'top_codes': code_freq.most_common(10),
+            'representative_trajectories': [
+                t['codes'] for t in sorted(cluster_trajs, key=lambda x: -x['total_count'])[:3]
+            ],
+            'avg_length': np.mean([t['length'] for t in cluster_trajs]),
+        }
+
+    info = {
+        'best_k': best_k,
+        'best_score': float(best_score),
+        'prototypes': prototypes,
+        'total_trajectories': n,
+    }
+    return best_labels, best_k, info
+
+
+def map_trajectory_to_experts(
+    trajectories: List[Dict],
+    labels: np.ndarray,
+    num_experts: int = 19,
+    num_prototypes: int = None
+) -> np.ndarray:
+    """将轨迹原型映射到章节级专家。
+
+    每个轨迹原型 → 其在各 ICD 章节上的激活权重。
+    用于初始化 TrajectoryCare 的专家原型向量。
+
+    Returns:
+        expert_weights: (num_prototypes, num_experts) 每个原型对各章节专家的权重
+    """
+    from models.expert_selectv2 import map_ccs_to_expert
+
+    if num_prototypes is None:
+        num_prototypes = len(set(labels)) - (1 if -1 in labels else 0)
+
+    expert_weights = np.zeros((num_prototypes, num_experts))
+
+    for proto_id in range(num_prototypes):
+        mask = labels == proto_id
+        proto_trajs = [trajectories[i] for i in range(len(trajectories)) if mask[i]]
+
+        # 统计轨迹中每个 CCS 编码映射到的章节
+        chapter_counts = np.zeros(num_experts)
+        for t in proto_trajs:
+            for code in t['codes']:
+                eid = map_ccs_to_expert(str(code))
+                if 0 <= eid < num_experts:
+                    chapter_counts[eid] += 1
+
+        if chapter_counts.sum() > 0:
+            expert_weights[proto_id] = chapter_counts / chapter_counts.sum()
+
+    return expert_weights
+
+
+def discover_trajectories_jensen(
+    all_seqs: List[List[List[str]]],
+    min_occurrence: int = 5,
+    alpha: float = 0.05,
+    max_traj_length: int = 4,
+    min_clusters: int = 5,
+    max_clusters: int = 15
+) -> Dict:
+    """Jensen 式轨迹发现的完整流水线。
+
+    Returns:
+        result: 包含 transitions, trajectories, clusters, expert_weights
+    """
+    # Step 1: 收集转移对
+    print(f"Step 1: 收集转移对 (min_occurrence={min_occurrence})...")
+    transitions = collect_transitions(all_seqs, min_occurrence)
+    total_transitions = sum(t['count'] for t in transitions.values())
+    print(f"  收集到 {len(transitions)} 对转移, 总转移 {total_transitions} 次")
+
+    # Step 2: 显著性检验
+    print(f"Step 2: 显著性检验 (alpha={alpha}, Bonferroni)...")
+    significant = compute_rr_and_significance(transitions, total_transitions, alpha)
+    print(f"  显著方向性转移: {len(significant)} 对")
+    if significant:
+        print(f"  Top-5 转移: {[(s['from'], s['to'], s['rr']) for s in significant[:5]]}")
+
+    # Step 3: 拼接轨迹
+    print(f"Step 3: 贪心拼接轨迹 (max_length={max_traj_length})...")
+    trajectories = stitch_trajectories(significant, max_length=max_traj_length)
+    print(f"  生成 {len(trajectories)} 条轨迹")
+    if trajectories:
+        for t in trajectories[:5]:
+            print(f"    {'→'.join(t['codes'])} (n={t['total_count']})")
+
+    # Step 4: 聚类轨迹原型
+    print(f"Step 4: 聚类轨迹为原型 (K∈[{min_clusters},{max_clusters}])...")
+    labels, best_k, cluster_info = cluster_trajectories(
+        trajectories, min_clusters, max_clusters
+    )
+    print(f"  发现 {best_k} 个轨迹原型")
+    for proto_id, info in cluster_info.get('prototypes', {}).items():
+        print(f"    原型 {proto_id}: {info['num_trajectories']} 条轨迹, "
+              f"平均长度 {info['avg_length']:.1f}, "
+              f"Top codes: {info['top_codes'][:5]}")
+
+    return {
+        'transitions': transitions,
+        'significant_pairs': significant,
+        'trajectories': trajectories,
+        'cluster_labels': labels.tolist() if len(labels) > 0 else [],
+        'best_k': best_k,
+        'cluster_info': cluster_info,
+    }

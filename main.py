@@ -12,8 +12,9 @@ from models.Base2_1 import Base2_1
 from models.TrajectoryCare import TrajectoryCare
 from preprocess.icd_chapter_mapping import map_code_to_chapter
 from models.trajectory_mining.prototype_discovery import (
-    discover_prototypes_spectral, assign_patients_to_prototypes, save_prototypes
+    discover_prototypes_spectral, save_prototypes
 )
+from models.trajectory_mining.jensen_trajectory import discover_trajectories_jensen
 from preprocess.trajectory_data_builder import (
     extract_chapter_sequences_from_dataset, compute_chapter_patient_matrix,
     print_chapter_statistics, get_trajectory_features
@@ -30,7 +31,7 @@ def main(args):
         
     set_random_seed(args.seed)
     print('{}--{}--{}--{}'.format(args.model, args.task, args.dataset, args.batch_size))
-    set_current_dataset(args.dataset)  # 必须在任何调用 map_ccs_to_expert 之前设置
+    set_current_dataset(args.dataset)  # 必须在任何调�?map_ccs_to_expert 之前设置
     cuda_id = "cuda:" + str(args.device_id)
     device = torch.device(cuda_id if torch.cuda.is_available() else "cpu")
 
@@ -47,29 +48,87 @@ def main(args):
     if args.model == 'Base2_1':
         model = Base2_1(Tokenizers_visit_event, Tokenizers_monitor_event, label_size, device, dropout=args.dropout)
     elif args.model == 'TrajectoryCare':
-        # --- 轨迹原型发现 ---
-        print("预计算轨迹原型...")
-        all_seqs, trans_matrix, num_chapters = extract_chapter_sequences_from_dataset(task_dataset, args)
-        chapter_labels, num_prototypes, proto_info = discover_prototypes_spectral(
-            trans_matrix, min_k=4, max_k=min(12, num_chapters)
-        )
-        print(print_chapter_statistics(all_seqs, trans_matrix, num_chapters, args.dataset))
-        print(f"发现 {num_prototypes} 个轨迹原型")
-        for k, v in proto_info['prototypes'].items():
-            print(f"  原型 {k}: 章节数={v['num_chapters']}, 章节={v['chapters']}")
+        # --- Jensen �? CCS 级显著转�?�?章节对分�?�?轨迹原型 ---
+        print("Jensen式轨迹发现（CCS统计检�?+ 章节对分组）...")
+        from models.expert_selectv2 import map_ccs_to_expert
+        from models.trajectory_mining.jensen_trajectory import collect_transitions, compute_rr_and_significance
+        from collections import defaultdict
+        from preprocess.icd_chapter_mapping import CHAPTER_NAMES_ICD9
 
-        # 预计算患者→章节分布映射
-        patient_chapter_dist = compute_chapter_patient_matrix(all_seqs, num_chapters)
-        patient_to_idx = {pid: i for i, pid in enumerate(task_dataset.patient_to_index.keys())}
+        # 提取多就诊患者的 CCS 序列
+        all_ccs_seqs = []
+        for sample in task_dataset.samples:
+            conditions = sample.get('conditions', [])
+            if not isinstance(conditions, list) or len(conditions) == 0:
+                continue
+            if isinstance(conditions[0], list):
+                visit_conds = conditions
+            else:
+                visit_conds = [conditions]
+            if len(visit_conds) < 2:
+                continue
+            all_ccs_seqs.append([[str(c) for c in v] for v in visit_conds])
 
-        # 构建 patient_id → (chapter_dist, num_visits) 查找表
-        patient_chapter_info = {}
-        for i, pid in enumerate(task_dataset.patient_to_index.keys()):
-            if i < len(all_seqs):
-                patient_chapter_info[str(pid)] = (
-                    torch.tensor(patient_chapter_dist[i], dtype=torch.float32),
-                    len(all_seqs[i]),  # num_visits
-                )
+        num_chapters = 19 if args.dataset == 'mimic3' else 22
+
+        # Step 1: 统计显著 CCS 转移�?(RR>2, Bonferroni p<0.001)
+        transitions = collect_transitions(all_ccs_seqs, min_occurrence=20)
+        total = sum(t['count'] for t in transitions.values())
+        significant = compute_rr_and_significance(transitions, total, alpha=0.001)
+        strong = [s for s in significant if s['rr'] > 2.0]
+
+        # Step 2: 按章节对分组（每个组=一个统计验证的转移模式�?        chapter_groups = defaultdict(list)
+        for s in strong:
+            ch_pair = (map_ccs_to_expert(s['from']), map_ccs_to_expert(s['to']))
+            chapter_groups[ch_pair].append(s)
+
+        # 取≥5个CCS对的�?        valid_groups = {ch: pairs for ch, pairs in chapter_groups.items()
+                       if len(pairs) >= 5 and ch[0] != ch[1]}
+        print(f"  显著CCS转移�?RR>2): {len(strong)}, 章节对组(�?�?: {len(valid_groups)}")
+
+        # Step 3: 取最大的章节对组作为轨迹原型
+        # 每个原型 = 统计验证的一�?CCS 转移（共享相同的源→目标章节对）
+        sorted_groups = sorted(valid_groups.items(), key=lambda x: -len(x[1]))
+
+        # 选择�?5对的大组作为原型，最�?�?        proto_groups = [(ch, pairs) for ch, pairs in sorted_groups if len(pairs) >= 15][:8]
+        num_prototypes = len(proto_groups)
+
+        # 构建章节→原型映射（每个章节可能属于多个原型，取最高频的）
+        chapter_proto_scores = np.zeros((num_chapters, num_prototypes))
+        for k, ((a, b), pairs) in enumerate(proto_groups):
+            for p in pairs:
+                from_ch = map_ccs_to_expert(p['from'])
+                to_ch = map_ccs_to_expert(p['to'])
+                chapter_proto_scores[from_ch, k] += p['count']
+                chapter_proto_scores[to_ch, k] += p['count']
+
+        chapter_labels = np.argmax(chapter_proto_scores, axis=1)
+        # 未被任何原型覆盖的章�?�?原型0
+        zero_mask = chapter_proto_scores.sum(axis=1) == 0
+        chapter_labels[zero_mask] = 0
+
+        prototypes = {}
+        for k, ((a, b), pairs) in enumerate(proto_groups):
+            total_n = sum(p['count'] for p in pairs)
+            avg_rr = sum(p['rr'] for p in pairs) / len(pairs)
+            ch_name_a = CHAPTER_NAMES_ICD9.get(a, f'E{a}')[:6]
+            ch_name_b = CHAPTER_NAMES_ICD9.get(b, f'E{b}')[:6]
+            prototypes[k] = {
+                'chapters': [f'C{a+1}', f'C{b+1}'],
+                'num_chapters': 2,
+                'name': f'{ch_name_a}→{ch_name_b}',
+                'evidence': f'{len(pairs)} pairs, N={total_n}, avg RR={avg_rr:.1f}',
+            }
+
+        print(f"  发现 {num_prototypes} 个轨迹原型（统计显著章节对）:")
+        for k in range(num_prototypes):
+            print(f"    原型{k}: {prototypes[k]['name']} ({prototypes[k]['evidence']})")
+
+        proto_info = {'best_k': num_prototypes, 'prototypes': prototypes}
+
+        # 构建章节分布
+        all_chapter_seqs, trans_matrix, _ = extract_chapter_sequences_from_dataset(task_dataset, args)
+        patient_chapter_dist = compute_chapter_patient_matrix(all_chapter_seqs, num_chapters)
 
         model = TrajectoryCare(
             Tokenizers_visit_event=Tokenizers_visit_event,
@@ -109,8 +168,7 @@ def main(args):
     os.makedirs(folder_path, exist_ok=True)
     ckpt_path = f'{folder_path}/best_model.ckpt'
 
-    # 保存轨迹原型（如果是 TrajectoryCare 模型）
-    if args.model == 'TrajectoryCare':
+    # 保存轨迹原型（如果是 TrajectoryCare 模型�?    if args.model == 'TrajectoryCare':
         save_prototypes(proto_info, f'{folder_path}/trajectory_prototypes.json')
     png_path = f'{folder_path}/loss.png'
     txt_path = f'{folder_path}/final_result.txt'
@@ -121,8 +179,7 @@ def main(args):
     final_jaccard_model_log = f'{folder_path}/final_result_jaccard.txt'
 
     if not args.test:
-        # 记录 loss 的列表
-        epoch_list = []
+        # 记录 loss 的列�?        epoch_list = []
         train_losses = []
         val_losses = []
 
@@ -135,8 +192,7 @@ def main(args):
         # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
         # 早停
         early_stopper = EarlyStopper(patience=args.patience, min_delta=0.0001, mode='min')
-        best = float('inf')  # 无限大
-        best_jaccard = float('-inf')
+        best = float('inf')  # 无限�?        best_jaccard = float('-inf')
         best_model = None
         best_model_jaccard = None
         for epoch in range(args.epochs):
@@ -152,8 +208,7 @@ def main(args):
                 print(f"Early stopping triggered at epoch {epoch + 1}")
                 break
 
-            # 保存最佳模型
-            if val_loss == early_stopper.best_value:
+            # 保存最佳模�?            if val_loss == early_stopper.best_value:
                 best_model = model.state_dict()
             
             # 跟踪Jaccard指标
@@ -164,8 +219,7 @@ def main(args):
             end_time = time.time()
             run_time = end_time - start_time
 
-            # 对两个ndarray进行格式化
-            code_level_results = ', '.join(map(lambda x: f"{x:.4f}", code_level_results))
+            # 对两个ndarray进行格式�?            code_level_results = ', '.join(map(lambda x: f"{x:.4f}", code_level_results))
             visit_level_results = ', '.join(map(lambda x: f"{x:.4f}", visit_level_results))
 
             # 打印结果
@@ -179,7 +233,7 @@ def main(args):
                   f'specificity: {specificity}'
                   )
 
-            # 记录结果到 log.txt
+            # 记录结果�?log.txt
             log_results(epoch, run_time, train_loss, val_loss, metrics, log_txt_path)
 
             # if val_loss < best:
@@ -194,8 +248,7 @@ def main(args):
             #     torch.save(best_model, ckpt_path)
             #     torch.save(best_model_jaccard, jaccard_ckpt_path)
 
-            # 每个epoch都保存最佳模型
-            torch.save(best_model, ckpt_path)
+            # 每个epoch都保存最佳模�?            torch.save(best_model, ckpt_path)
             torch.save(best_model_jaccard, jaccard_ckpt_path)
 
             # 记录损失
@@ -210,8 +263,7 @@ def main(args):
             if args.scheduler:
                 scheduler.step()
 
-        # 这里本来可以每个epoch都保存一次，但是太大了，所以只保存一次
-        torch.save(best_model, ckpt_path)
+        # 这里本来可以每个epoch都保存一次，但是太大了，所以只保存一�?        torch.save(best_model, ckpt_path)
         torch.save(best_model_jaccard, jaccard_ckpt_path)
 
     print('--------------------Begin Testing--------------------')
@@ -220,8 +272,7 @@ def main(args):
     model.load_state_dict(best_model)
     model = model.to(device)
 
-    # 开始测试
-    sample_size = 0.8  # 国际惯例选取0.8
+    # 开始测�?    sample_size = 0.8  # 国际惯例选取0.8
     outstring = testing(test_loader, args.test_epochs, model, label_tokenizer, sample_size, label_name, device)
 
     # 输出结果
@@ -261,7 +312,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default="Base2_1",
                         choices=['Base2_1', 'TrajectoryCare'],
                         help='Base2_1, TrajectoryCare')
-    parser.add_argument('--device_id', type=int, default=0, help="选gpu编号的")
+    parser.add_argument('--device_id', type=int, default=0, help="选gpu编号�?)
     parser.add_argument('--seed', type=int, default=222)
     parser.add_argument('--dataset', type=str, default="mimic3", choices=['mimic3', 'mimic4'])
     parser.add_argument('--task', type=str, default="drug_rec_ts", choices=['drug_rec', 'diag_pred_ts', 'drug_rec_ts'])
