@@ -298,7 +298,12 @@ def evaluating(data_loader, model, label_tokenizer, label_name, device):
                 else:
                     label = prepare_labels(data[0][label_name], label_tokenizer).to(device)
 
-                model_output = model(data)
+                # TrajectoryCare 评估时也传入路由信息（与训练一致）
+                if hasattr(model, 'router'):
+                    chapter_dist, traj_features, num_visits = _get_chapter_info_from_batch(data, model)
+                    model_output = model(data, chapter_dist, num_visits, traj_features)
+                else:
+                    model_output = model(data)
                 # 检查输出是否为元组 (来自 Multi_DT)
                 if isinstance(model_output, (tuple, list)):
                     out = model_output[0]   # 第一个是 logits
