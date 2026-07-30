@@ -154,6 +154,12 @@ def main(args):
         all_chapter_seqs, trans_matrix, _ = extract_chapter_sequences_from_dataset(task_dataset, args)
         patient_chapter_dist = compute_chapter_patient_matrix(all_chapter_seqs, num_chapters)
 
+        # === Phase 3: 为每个专家分配架构类型 ===
+        from models.TrajectoryCare import assign_expert_types
+        expert_types = assign_expert_types(rule_proto_info, num_prototypes)
+        if args.use_traj_router:
+            print(f"  专家类型: {expert_types}")
+
         model = TrajectoryCare(
             Tokenizers_visit_event=Tokenizers_visit_event,
             Tokenizers_monitor_event=Tokenizers_monitor_event,
@@ -166,6 +172,7 @@ def main(args):
             dropout=args.dropout,
             use_traj_router=args.use_traj_router,
             rule_prototypes=rule_prototypes,
+            expert_types=expert_types,
         )
     else:
         print("没有这个模型")

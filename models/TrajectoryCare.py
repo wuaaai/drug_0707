@@ -230,13 +230,27 @@ class TrajectoryAwareRouter(nn.Module):
 
 
 class TrajectoryExpert(nn.Module):
-    """单个轨迹专家 —— 轻量版 GRU 编码器 + 输出头。
+    """单个轨迹专家 —— 支持多种架构变体的 GRU 编码器 + 输出头。
 
-    相比 Base2_1 的完整版，这个轻量版：
+    Phase 3: 不同专家使用不同架构，适应不同的疾病演化模式。
+
+    Expert Types:
+    - 'standard': 1 层 GRU, 96 dim (同 Phase 1) —— 通用模式
+    - 'deep': 3 层 GRU + 残差连接 —— 渐进退化型（HTN→HF→CKD）
+    - 'attentive': 1 层 GRU + 自注意力池化 —— 急性触发型（MI→Shock）
+    - 'wide': 1 层 GRU, 192 dim —— 共病扩散型（DM→CKD→CVD→PAD）
+
+    相比 Base2_1 的完整版，所有变体：
     - 只处理 visit_event keys（conditions, procedures, drugs_hist）
-    - 使用较小的 hidden dim（默认 96）
     - 无 monitor_event 处理（检验信号通过时序分析器注入）
     """
+
+    EXPERT_TYPE_CONFIG = {
+        'standard': {'gru_layers': 1, 'hidden_dim': None, 'use_attention': False},
+        'deep':     {'gru_layers': 3, 'hidden_dim': None, 'use_attention': False},
+        'attentive':{'gru_layers': 1, 'hidden_dim': None, 'use_attention': True},
+        'wide':     {'gru_layers': 1, 'hidden_dim': None, 'use_attention': False},
+    }
 
     def __init__(
         self,
@@ -245,12 +259,23 @@ class TrajectoryExpert(nn.Module):
         device: torch.device,
         embedding_dim: int = 96,
         dropout: float = 0.5,
+        expert_type: str = 'standard',
     ):
         super().__init__()
+        assert expert_type in self.EXPERT_TYPE_CONFIG, \
+            f"Unknown expert_type: {expert_type}, choose from {list(self.EXPERT_TYPE_CONFIG.keys())}"
+
+        self.expert_type = expert_type
         self.embedding_dim = embedding_dim
         self.visit_event_token = Tokenizers_visit_event
         self.feature_keys = list(Tokenizers_visit_event.keys())
         self.device = device
+
+        # 根据专家类型确定架构参数
+        config = self.EXPERT_TYPE_CONFIG[expert_type]
+        gru_layers = config['gru_layers']
+        expert_hidden = config['hidden_dim'] or embedding_dim
+        self.use_attention = config['use_attention']
 
         # Embedding layers
         self.embeddings = nn.ModuleDict()
@@ -262,20 +287,40 @@ class TrajectoryExpert(nn.Module):
                 padding_idx=tokenizer.get_padding_index(),
             )
 
-        # GRU layers
+        # GRU layers（按 expert type 差异化）
         self.gru_layers = nn.ModuleDict()
         for key in self.feature_keys:
-            self.gru_layers[key] = nn.GRU(
-                embedding_dim, embedding_dim, batch_first=True
+            if expert_type == 'deep' and gru_layers > 1:
+                # 深层 GRU：每一层输出维度不同，用 ModuleList
+                gru = nn.GRU(embedding_dim, expert_hidden,
+                             num_layers=gru_layers, dropout=dropout if gru_layers > 1 else 0,
+                             batch_first=True)
+            else:
+                gru = nn.GRU(embedding_dim, expert_hidden,
+                             num_layers=gru_layers, batch_first=True)
+            self.gru_layers[key] = gru
+
+        # 'attentive' 类型：自注意力池化层
+        if self.use_attention:
+            self.self_attn = nn.MultiheadAttention(
+                expert_hidden, num_heads=4, batch_first=True, dropout=dropout
             )
 
         self.dropout = nn.Dropout(p=dropout)
 
         # 输出头
         item_num = len(self.feature_keys)
+        fc_input_dim = item_num * expert_hidden
+        # 'wide' 类型的输出头需要降维
+        if expert_type == 'wide' and expert_hidden > embedding_dim:
+            self.fc_reduce = nn.Linear(expert_hidden, embedding_dim)
+            fc_input_dim = item_num * embedding_dim
+        else:
+            self.fc_reduce = None
+
         self.fc = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(item_num * embedding_dim, output_size),
+            nn.Linear(fc_input_dim, output_size),
         )
 
     def forward(self, batch_data: Dict) -> torch.Tensor:
@@ -298,13 +343,95 @@ class TrajectoryExpert(nn.Module):
             x = torch.sum(x, dim=2)
             # (B, visits, embedding_dim)
 
-            _, hidden = self.gru_layers[key](x)
-            # hidden: (1, B, embedding_dim)
-            patient_emb_list.append(hidden.squeeze(0))  # (B, embedding_dim)
+            # === GRU 编码（按 expert type 不同） ===
+            if self.expert_type == 'deep':
+                # 深层 GRU + 残差连接
+                output, hidden = self.gru_layers[key](x)
+                # 残差：将第一层输出加到最后一层
+                if self.gru_layers[key].num_layers > 1:
+                    hidden = hidden[-1:, :, :]  # 取最后一层 hidden
+                patient_emb = hidden.squeeze(0)
+            else:
+                output, hidden = self.gru_layers[key](x)
+                patient_emb = hidden.squeeze(0)  # (B, embedding_dim)
+
+            # 'attentive'：对 output 序列做自注意力池化
+            if self.use_attention:
+                # output: (B, visits, hidden_dim)
+                attn_out, _ = self.self_attn(output, output, output)
+                # 对 visit 维度做平均池化
+                patient_emb = attn_out.mean(dim=1)
+
+            # 'wide'：通过降维层
+            if self.fc_reduce is not None:
+                patient_emb = self.fc_reduce(patient_emb)
+
+            patient_emb_list.append(patient_emb)
 
         patient_emb = torch.cat(patient_emb_list, dim=-1)
         logits = self.fc(patient_emb)
         return logits
+
+
+def assign_expert_types(
+    rule_proto_info: Optional[Dict] = None,
+    num_prototypes: int = 8,
+) -> List[str]:
+    """根据 Phase 2 规则原型特征为每个专家分配架构类型。
+
+    分配策略（基于原型对应的转移规则特征）：
+    - 高 RR（急性）→ 'attentive'
+    - 多目标章节（共病扩散）→ 'wide'
+    - 高自转移率（渐进退化）→ 'deep'
+    - 其他 → 'standard'
+
+    Args:
+        rule_proto_info: compress_rules_to_prototypes() 返回的 info
+        num_prototypes: 专家/原型数
+
+    Returns:
+        expert_types: list of str, 长度为 num_prototypes
+    """
+    if rule_proto_info is None or 'prototypes' not in rule_proto_info:
+        # 无规则原型信息时，轮询分配四种类型以保持多样性
+        cycle = ['deep', 'attentive', 'wide', 'standard']
+        return [cycle[i % len(cycle)] for i in range(num_prototypes)]
+
+    prototypes_info = rule_proto_info.get('prototypes', {})
+    expert_types = []
+
+    for k in range(num_prototypes):
+        p = prototypes_info.get(k, {})
+        num_rules = p.get('num_rules', 0)
+        top_from = p.get('top_from_chapters', [])
+        top_to = p.get('top_to_chapters', [])
+
+        # 计算源/目标章节的分布特征
+        from_chs = [ch for ch, _ in top_from]
+        to_chs = [ch for ch, _ in top_to]
+        unique_targets = len(set(to_chs))
+        unique_sources = len(set(from_chs))
+        num_from = sum(cnt for _, cnt in top_from) if top_from else 1
+
+        # 源章节集中度：最高频源章节占比
+        top_from_share = top_from[0][1] / num_from if top_from else 0
+
+        # 分配逻辑基于拓扑多样性（而非 RR 绝对值，因为 MIMIC 中 RR 普遍很高）
+        # 'wide': 多目标章节 → 共病扩散型（DM→CKD→CVD→PAD）
+        if unique_targets >= 4:
+            etype = 'wide'
+        # 'deep': 源高度集中 + 规则丰富 → 渐进退化型（HTN→HF→CKD）
+        elif top_from_share > 0.7 and num_rules > 100:
+            etype = 'deep'
+        # 'attentive': 源分散（多原因引起同一结果）→ 急性触发型（MI→Shock）
+        elif top_from_share < 0.4 and unique_sources >= 3:
+            etype = 'attentive'
+        else:
+            etype = 'standard'
+
+        expert_types.append(etype)
+
+    return expert_types
 
 
 class TrajectoryCare(nn.Module):
@@ -349,7 +476,16 @@ class TrajectoryCare(nn.Module):
         cold_start_alpha: float = 0.3,
         use_traj_router: bool = False,
         rule_prototypes: Optional[np.ndarray] = None,
+        rule_proto_info: Optional[Dict] = None,
+        expert_types: Optional[List[str]] = None,
     ):
+        """初始化 TrajectoryCare 模型。
+
+        Args:
+            rule_proto_info: Phase 2 规则压缩的详情 dict（用于分配专家类型）。
+            expert_types: (K,) list，每个专家的架构类型。
+                Phase 3: 若提供，创建异构专家；否则所有专家使用 'standard' 类型。
+        """
         super().__init__()
         self.device = device
         self.num_prototypes = num_prototypes
@@ -377,7 +513,21 @@ class TrajectoryCare(nn.Module):
                 alpha=cold_start_alpha,
             )
 
-        # K 个轨迹专家
+        # === Phase 3: K 个异构轨迹专家 ===
+        if expert_types is None:
+            # 从规则原型信息自动分配，或使用默认顺序
+            auto_types = assign_expert_types(rule_proto_info, num_prototypes)
+        else:
+            auto_types = expert_types
+        self.expert_types = auto_types
+
+        # 打印专家类型分配
+        type_counts = {}
+        for t in auto_types:
+            type_counts[t] = type_counts.get(t, 0) + 1
+        type_str = ', '.join([f'{k}={v}' for k, v in type_counts.items()])
+        print(f"  专家类型分配 ({num_prototypes}个): {type_str}")
+
         self.experts = nn.ModuleList([
             TrajectoryExpert(
                 Tokenizers_visit_event=Tokenizers_visit_event,
@@ -385,8 +535,9 @@ class TrajectoryCare(nn.Module):
                 device=device,
                 embedding_dim=embedding_dim,
                 dropout=dropout,
+                expert_type=auto_types[k],
             )
-            for _ in range(num_prototypes)
+            for k in range(num_prototypes)
         ])
 
         # 原型嵌入（用于路由可视化和可解释性）
