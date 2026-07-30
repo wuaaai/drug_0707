@@ -116,7 +116,15 @@ class TrajectoryAwareRouter(nn.Module):
         tau_min: float = 0.5,
         alpha: float = 0.3,
         use_cosine_routing: bool = True,
+        rule_prototypes: Optional[np.ndarray] = None,
     ):
+        """轨迹感知路由器。
+
+        Args:
+            rule_prototypes: (K, 3*C) ndarray，来自 compress_rules_to_prototypes() 的规则原型。
+                若提供，用于初始化 prototype_vectors（而非随机初始化）。
+                Phase 2: 将 Jensen 规则先验引入路由。
+        """
         super().__init__()
         self.num_prototypes = num_prototypes
         self.num_chapters = num_chapters
@@ -130,10 +138,15 @@ class TrajectoryAwareRouter(nn.Module):
         self.traj_feat_dim = num_chapters * 3
 
         # === 轨迹原型向量（可学习，直观对应于 K 种轨迹模式） ===
-        # 每个原型是一个轨迹特征维度的向量，代表一种典型演化模式
-        self.prototype_vectors = nn.Parameter(
-            torch.randn(num_prototypes, self.traj_feat_dim) * 0.1
-        )
+        # Phase 2: 若提供了 rule_prototypes，用它初始化（而非随机）
+        if rule_prototypes is not None:
+            assert rule_prototypes.shape == (num_prototypes, self.traj_feat_dim), \
+                f'rule_prototypes shape mismatch: {rule_prototypes.shape} vs {(num_prototypes, self.traj_feat_dim)}'
+            init_tensor = torch.tensor(rule_prototypes, dtype=torch.float32)
+        else:
+            init_tensor = torch.randn(num_prototypes, self.traj_feat_dim) * 0.1
+
+        self.prototype_vectors = nn.Parameter(init_tensor)
 
         # === 章节先验（同原版路由器） ===
         self.prototype_prior = nn.Parameter(
@@ -301,6 +314,10 @@ class TrajectoryCare(nn.Module):
     - use_traj_router=False: 使用原始 TrajectoryRouter（静态章节词袋作为输入）
     - use_traj_router=True: 使用 TrajectoryAwareRouter（轨迹拓扑特征作为输入）
 
+    Phase 2 增强：
+    - 当提供 rule_prototypes 时，用它初始化 TrajectoryAwareRouter 的原型向量
+      （来自 Jensen 显著转移规则的 KMeans 压缩）
+
     Args:
         Tokenizers_visit_event: visit 事件的 tokenizer 字典
         Tokenizers_monitor_event: monitor 事件的 tokenizer 字典
@@ -314,6 +331,7 @@ class TrajectoryCare(nn.Module):
         tau_init: 冷启动初始温度
         cold_start_alpha: 退火速率
         use_traj_router: 是否使用轨迹感知路由器
+        rule_prototypes: (K, 3*C) ndarray，Jensen 规则压缩的原型（Phase 2）
     """
 
     def __init__(
@@ -330,6 +348,7 @@ class TrajectoryCare(nn.Module):
         tau_init: float = 2.0,
         cold_start_alpha: float = 0.3,
         use_traj_router: bool = False,
+        rule_prototypes: Optional[np.ndarray] = None,
     ):
         super().__init__()
         self.device = device
@@ -347,6 +366,7 @@ class TrajectoryCare(nn.Module):
                 tau_init=tau_init,
                 tau_min=0.5,
                 alpha=cold_start_alpha,
+                rule_prototypes=rule_prototypes,
             )
         else:
             self.router = TrajectoryRouter(

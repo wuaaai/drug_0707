@@ -51,7 +51,10 @@ def main(args):
         # --- Jensen -> CCS 级显著转移 -> 章节对分组 -> 轨迹原型 ---
         print("Jensen式轨迹发现（CCS统计检验 + 章节对分组）...")
         from models.expert_selectv2 import map_ccs_to_expert
-        from models.trajectory_mining.jensen_trajectory import collect_transitions, compute_rr_and_significance
+        from models.trajectory_mining.jensen_trajectory import (
+            collect_transitions, compute_rr_and_significance,
+            compress_rules_to_prototypes, log_rule_prototypes,
+        )
         from collections import defaultdict
         from preprocess.icd_chapter_mapping import CHAPTER_NAMES_ICD9
 
@@ -129,6 +132,24 @@ def main(args):
 
         proto_info = {'best_k': num_prototypes, 'prototypes': prototypes}
 
+        # === Phase 2: Jensen 规则压缩为路由先验 ===
+        rule_prototypes = None
+        rule_proto_info = None
+        if args.use_traj_router and len(strong) > 0:
+            print("\nPhase 2: 将显著转移规则压缩为路由原型...")
+            rule_prototypes, _, rule_proto_info = compress_rules_to_prototypes(
+                significant_pairs=strong,
+                num_chapters=num_chapters,
+                num_prototypes=num_prototypes,
+                weight_by='rr',
+            )
+            log_rule_prototypes(rule_proto_info)
+            proto_info['rule_prototypes'] = {
+                'method': rule_proto_info['method'],
+                'num_rules': rule_proto_info['num_rules'],
+                'prototypes': rule_proto_info['prototypes'],
+            }
+
         # 构建章节分布
         all_chapter_seqs, trans_matrix, _ = extract_chapter_sequences_from_dataset(task_dataset, args)
         patient_chapter_dist = compute_chapter_patient_matrix(all_chapter_seqs, num_chapters)
@@ -144,6 +165,7 @@ def main(args):
             embedding_dim=args.dim,
             dropout=args.dropout,
             use_traj_router=args.use_traj_router,
+            rule_prototypes=rule_prototypes,
         )
     else:
         print("没有这个模型")

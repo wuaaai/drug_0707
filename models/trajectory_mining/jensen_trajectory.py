@@ -399,3 +399,166 @@ def discover_trajectories_jensen(
         'best_k': best_k,
         'cluster_info': cluster_info,
     }
+
+
+def compress_rules_to_prototypes(
+    significant_pairs: List[Dict],
+    num_chapters: int,
+    num_prototypes: int,
+    weight_by: str = 'rr',
+    random_state: int = 42,
+) -> Tuple[np.ndarray, np.ndarray, Dict]:
+    """将 Jensen 统计显著的 CCS 转移规则压缩为 K 个路由原型。
+
+    Phase 2 核心函数：将数百条 CCS→CCS 显著转移规则用 KMeans 聚类压缩，
+    产生的原型向量用于初始化 TrajectoryAwareRouter 的可学习原型。
+
+    每一条显著转移规则 A→B 被编码为一个 2*C 维向量：
+        [0..C-1] = from_chapter 的 one-hot（乘以权重）
+        [C..2C-1] = to_chapter 的 one-hot（乘以权重）
+    其中 C = num_chapters。
+
+    KMeans 聚类后，每个簇中心代表一种典型的章节→章节转移模式。
+    再将其扩展为 3*C 维（加入频率成分），与路由器输入空间对齐。
+
+    Args:
+        significant_pairs: Jensen 检验产生的显著转移对列表
+            [{'from': CCS_A, 'to': CCS_B, 'rr': float, 'count': int}, ...]
+        num_chapters: 章节数量 (ICD-9: 19, ICD-10: 22)
+        num_prototypes: 目标原型数 K
+        weight_by: 规则向量的权重方式 ('rr'=相对风险, 'count'=频次, 'none'=均等)
+        random_state: 随机种子
+
+    Returns:
+        rule_prototypes: (K, 3*C) ndarray，扩展后的规则原型（初始化为路由器原型）
+        chapter_labels: 每个章节隶属的原型标签
+        info: 压缩详情（各原型映射到的章节对、簇大小等）
+    """
+    from sklearn.cluster import KMeans
+    from models.expert_selectv2 import map_ccs_to_expert
+
+    if len(significant_pairs) < num_prototypes:
+        print(f"  警告: 显著转移对({len(significant_pairs)}) < 原型数({num_prototypes})，将自动调整 K")
+        num_prototypes = max(2, len(significant_pairs))
+
+    # Step 1: 将每条规则编码为 2*C 维向量
+    D = num_chapters * 2
+    n_rules = len(significant_pairs)
+    rule_vectors = np.zeros((n_rules, D))
+    rule_meta = [None] * n_rules  # 预分配，保持与 n_rules 长度一致
+
+    for i, pair in enumerate(significant_pairs):
+        from_ch = map_ccs_to_expert(pair['from'])
+        to_ch = map_ccs_to_expert(pair['to'])
+
+        if not (0 <= from_ch < num_chapters and 0 <= to_ch < num_chapters):
+            continue
+        if from_ch == to_ch:
+            continue  # 跳过同章节转移（噪音较大）
+
+        if weight_by == 'rr':
+            w = min(pair.get('rr', 1.0), 100.0)  # 截断极端 RR
+        elif weight_by == 'count':
+            w = max(pair.get('count', 1), 1)
+            w = min(np.log(w + 1), 5.0)  # log 缩放
+        else:
+            w = 1.0
+
+        rule_vectors[i, from_ch] = w
+        rule_vectors[i, num_chapters + to_ch] = w
+        rule_meta[i] = {
+            'from': pair['from'],
+            'to': pair['to'],
+            'from_ch': from_ch,
+            'to_ch': to_ch,
+            'weight': w,
+            'rr': pair.get('rr', 0),
+            'count': pair.get('count', 0),
+        }
+
+    # 过滤全零向量
+    nonzero_mask = rule_vectors.sum(axis=1) > 0
+    rule_vectors = rule_vectors[nonzero_mask]
+    rule_meta = [rule_meta[i] for i in range(n_rules) if nonzero_mask[i] and rule_meta[i] is not None]
+    n_valid = len(rule_vectors)
+
+    if n_valid < num_prototypes:
+        num_prototypes = max(2, n_valid)
+        print(f"  警告: 有效规则数({n_valid})不足，调整 K={num_prototypes}")
+
+    # Step 2: KMeans 聚类
+    kmeans = KMeans(n_clusters=num_prototypes, random_state=random_state, n_init=10)
+    cluster_labels = kmeans.fit_predict(rule_vectors)
+    centroids_2c = kmeans.cluster_centers_  # (K, 2*C)
+
+    # Step 3: 扩展为 3*C 维（添加频率成分）
+    # 对于每个簇，统计该簇规则的 from_ch / to_ch 分布作为 freq 分量
+    centroids_3c = np.zeros((num_prototypes, num_chapters * 3))
+    centroids_3c[:, :num_chapters] = centroids_2c[:, :num_chapters]  # in_edges ≈ from
+    centroids_3c[:, num_chapters:2*num_chapters] = centroids_2c[:, num_chapters:]  # out_edges ≈ to
+    # freq = avg of from + to
+    centroids_3c[:, 2*num_chapters:] = (
+        centroids_2c[:, :num_chapters] + centroids_2c[:, num_chapters:]
+    ) / 2
+
+    # 每行归一化到 unit norm（与路由器使用的 F.normalize 一致）
+    row_norms = np.linalg.norm(centroids_3c, axis=1, keepdims=True)
+    row_norms[row_norms == 0] = 1
+    centroids_3c = centroids_3c / row_norms
+
+    # Step 4: 构建原型描述信息
+    chapter_labels = np.full(num_chapters, -1, dtype=int)
+    prototypes_info = {}
+    for k in range(num_prototypes):
+        # 找到该簇中最具代表性的章节对
+        mask = cluster_labels == k
+        cluster_rules = [rule_meta[i] for i in range(n_valid) if mask[i]]
+        # 统计源/目标章节频率
+        from_counter = Counter(r['from_ch'] for r in cluster_rules)
+        to_counter = Counter(r['to_ch'] for r in cluster_rules)
+        top_from = from_counter.most_common(3)
+        top_to = to_counter.most_common(3)
+
+        prototypes_info[int(k)] = {
+            'num_rules': len(cluster_rules),
+            'top_from_chapters': [(int(ch), cnt) for ch, cnt in top_from],
+            'top_to_chapters': [(int(ch), cnt) for ch, cnt in top_to],
+            'example_rules': [
+                {'from': r['from'], 'to': r['to'], 'rr': r['rr']}
+                for r in cluster_rules[:3]
+            ],
+        }
+
+        # 章节→原型映射：该簇中最常见的 from_ch 和 to_ch 分配到这个原型
+        for ch, _ in top_from + top_to:
+            if 0 <= ch < num_chapters:
+                if chapter_labels[ch] == -1:
+                    chapter_labels[ch] = k
+
+    # 未被分配的章节 -> 最近的原型
+    for ch in range(num_chapters):
+        if chapter_labels[ch] == -1:
+            chapter_labels[ch] = 0  # 默认归入原型 0
+
+    info = {
+        'num_rules': n_valid,
+        'num_prototypes': num_prototypes,
+        'prototypes': prototypes_info,
+        'chapter_labels': chapter_labels.tolist(),
+        'method': f'KMeans(weight_by={weight_by})',
+    }
+    return centroids_3c, chapter_labels, info
+
+
+def log_rule_prototypes(info: Dict):
+    """打印规则原型的详细信息。"""
+    print(f"\n规则原型压缩结果 (K={info['num_prototypes']}, {info['method']}):")
+    print(f"  总规则数: {info['num_rules']}")
+    for k, p in info.get('prototypes', {}).items():
+        from_str = ', '.join([f'E{ch}({cnt})' for ch, cnt in p['top_from_chapters']])
+        to_str = ', '.join([f'E{ch}({cnt})' for ch, cnt in p['top_to_chapters']])
+        print(f"  原型{k} ({p['num_rules']}条规则):")
+        print(f"    源章节: {from_str}")
+        print(f"    目标章节: {to_str}")
+        for ex in p['example_rules'][:1]:
+            print(f"    示例: {ex['from']}→{ex['to']} (RR={ex['rr']})")
