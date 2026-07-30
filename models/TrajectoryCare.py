@@ -325,7 +325,10 @@ class TrajectoryExpert(nn.Module):
 
         self.fc = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(fc_input_dim, output_size),
+            nn.Linear(fc_input_dim, fc_input_dim // 2),  # 隐藏层：384→192
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(fc_input_dim // 2, output_size),
         )
 
     def forward(self, batch_data: Dict) -> torch.Tensor:

@@ -358,7 +358,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default="mimic3", choices=['mimic3', 'mimic4'])
     parser.add_argument('--task', type=str, default="drug_rec_ts", choices=['drug_rec', 'diag_pred_ts', 'drug_rec_ts'])
     parser.add_argument('--batch_size', type=int, default=32, help='batch size')
-    parser.add_argument('--dim', type=int, default=128, help='embedding dim')
+    parser.add_argument('--dim', type=int, default=128, help='embedding dim (256 for high capacity)')
     parser.add_argument('--dropout', type=float, default=0.7, help='dropout rate')
     parser.add_argument('--developer', action="store_true", help='developer mode')
     parser.add_argument('--test', action="store_true", help='test mode')
