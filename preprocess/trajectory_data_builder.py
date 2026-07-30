@@ -233,6 +233,9 @@ def batch_compute_trajectory_features(
         features[i, num_experts:2 * num_experts] = out_edges
         features[i, 2 * num_experts:3 * num_experts] = freq
 
+    return features
+
+
 def print_chapter_statistics(all_seqs, trans_matrix, num_experts, dataset):
     """打印章节统计信息。"""
     chapter_names = CHAPTER_NAMES_ICD9 if dataset == 'mimic3' else CHAPTER_NAMES_ICD10
