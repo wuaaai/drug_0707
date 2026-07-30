@@ -156,6 +156,83 @@ def get_trajectory_features(all_seqs: List[List[List[int]]], num_experts: int) -
     return features
 
 
+def batch_compute_trajectory_features(
+    conditions_list: List[List[List[str]]],
+    num_experts: int,
+) -> np.ndarray:
+    """从 batch 的患者诊断列表直接计算轨迹拓扑特征。
+
+    与 get_trajectory_features() 不同，此函数直接接收原始诊断编码，
+    无需预先构建 expert ID 序列，适合在训练循环的 batch 级调用。
+
+    对于每个患者，将历史就诊的 CCS 编码映射到 Expert ID，
+    然后计算三维轨迹特征：
+
+    特征布局: [0..C-1] = in_edges, [C..2C-1] = out_edges, [2C..3C-1] = freq
+
+    Args:
+        conditions_list: list of patients, each patient is list of visits,
+                         each visit is list of CCS code strings
+                        [ [['49','98'], ['108', '122']], ... ]
+        num_experts: Expert 数量 (ICD-9: 19, ICD-10: 22)
+
+    Returns:
+        features: (B, num_experts * 3) ndarray
+    """
+    B = len(conditions_list)
+    features = np.zeros((B, num_experts * 3))
+
+    for i, patient_conds in enumerate(conditions_list):
+        if not patient_conds or not isinstance(patient_conds, list):
+            continue
+
+        # 将每个就诊的 CCS 编码映射为 Expert ID 集合
+        visit_expert_ids = []  # list of sets
+        for visit_codes in patient_conds:
+            if not visit_codes:
+                continue
+            expert_ids = set()
+            for code in visit_codes:
+                eid = map_ccs_to_expert(str(code))
+                if 0 <= eid < num_experts:
+                    expert_ids.add(eid)
+            if expert_ids:
+                visit_expert_ids.append(expert_ids)
+
+        if len(visit_expert_ids) < 1:
+            continue
+
+        # 计算 freq: 每个 Expert 在患者历史中出现的频率
+        freq = np.zeros(num_experts)
+        in_edges = np.zeros(num_experts)
+        out_edges = np.zeros(num_experts)
+
+        for t, visit_experts in enumerate(visit_expert_ids):
+            for eid in visit_experts:
+                freq[eid] += 1
+
+            if t > 0:
+                prev_experts = visit_expert_ids[t - 1]
+                for eid_from in prev_experts:
+                    out_edges[eid_from] += 1
+                    for eid_to in visit_experts:
+                        in_edges[eid_to] += 1
+
+        # 归一化
+        in_sum = in_edges.sum()
+        out_sum = out_edges.sum()
+        freq_sum = freq.sum()
+        if in_sum > 0:
+            in_edges /= in_sum
+        if out_sum > 0:
+            out_edges /= out_sum
+        if freq_sum > 0:
+            freq /= freq_sum
+
+        features[i, :num_experts] = in_edges
+        features[i, num_experts:2 * num_experts] = out_edges
+        features[i, 2 * num_experts:3 * num_experts] = freq
+
 def print_chapter_statistics(all_seqs, trans_matrix, num_experts, dataset):
     """打印章节统计信息。"""
     chapter_names = CHAPTER_NAMES_ICD9 if dataset == 'mimic3' else CHAPTER_NAMES_ICD10

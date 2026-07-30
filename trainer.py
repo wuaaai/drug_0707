@@ -36,14 +36,20 @@ import traceback
 
 
 def _get_chapter_info_from_batch(data, model):
-    """从 batch 数据提取章节分布（用于 TrajectoryCare 路由）。
+    """从 batch 数据提取路由所需信息。
 
-    数据集中的 conditions 是 CCS/CCSCM 编码，通过 map_ccs_to_expert 映射。
+    返回：
+    - 章节分布（用于 TrajectoryRouter）
+    - 轨迹特征（用于 TrajectoryAwareRouter，当 use_traj_router=True）
+    - 就诊数（用于冷启动退火）
+
+    数据集中的 conditions 是 CCS/CCSCM 编码，通过 map_ccs_to_expert 映射到 Expert ID。
     """
     if not hasattr(model, 'router'):
         return None, None
 
     from models.expert_selectv2 import map_ccs_to_expert
+    from preprocess.trajectory_data_builder import batch_compute_trajectory_features
 
     if type(data) == dict:
         conditions_list = data.get('conditions', [])
@@ -54,34 +60,56 @@ def _get_chapter_info_from_batch(data, model):
 
     num_experts = model.num_chapters
     device = model.device
-    chapter_dists = torch.zeros(B, num_experts, device=device)
 
+    # === 1. 构建历史就诊序列（排除最后一次就诊 = 当前预测目标） ===
+    # conditions_list 格式: [[[v1_codes], [v2_codes], ..., [vn_codes]], ...]
+    # 排除最后一次就诊，只使用历史就诊计算路由
+    historical_conds = []
+    num_visits_list = []
     for b in range(B):
         if type(data) == dict:
             patient_conds = conditions_list[b] if b < len(conditions_list) else []
         else:
             patient_conds = conditions_list[b] if b < len(conditions_list) else []
 
-        # patient_conds 可能是 [[v1], [v2], ...]（多就诊）或 ['c1', 'c2']（单就诊）
-        if isinstance(patient_conds, list) and len(patient_conds) > 0:
-            if isinstance(patient_conds[0], list):
-                # 多就诊：统计所有历史就诊（排除最后一个=当前就诊的标签）
-                conds = []
-                for visit_codes in patient_conds[:-1]:
-                    conds.extend(visit_codes)
-            else:
-                conds = patient_conds
-            for code in conds:
+        if (isinstance(patient_conds, list) and len(patient_conds) > 0
+                and isinstance(patient_conds[0], list)):
+            hist = patient_conds[:-1]  # 排除当前就诊
+        else:
+            # 单就诊或非嵌套格式，全部使用
+            hist = patient_conds if isinstance(patient_conds, list) else []
+        historical_conds.append(hist if isinstance(hist, list) else [hist])
+        num_visits_list.append(len(hist))
+
+    # === 2. 计算章节分布（用于 TrajectoryRouter 和先验相似度） ===
+    chapter_dists = torch.zeros(B, num_experts, device=device)
+    for b in range(B):
+        for visit_codes in historical_conds[b]:
+            if not isinstance(visit_codes, list):
+                continue
+            for code in visit_codes:
                 eid = map_ccs_to_expert(str(code))
                 if 0 <= eid < num_experts:
                     chapter_dists[b, eid] += 1
-
         row_sum = chapter_dists[b].sum()
         if row_sum > 0:
             chapter_dists[b] /= row_sum
 
-    num_visits = torch.ones(B, device=device)
-    return chapter_dists, num_visits
+    # === 3. 计算轨迹特征（用于 TrajectoryAwareRouter） ===
+    traj_features = None
+    if hasattr(model, 'use_traj_router') and model.use_traj_router:
+        # 将 historical_conds 转换为 batch_compute_trajectory_features 需要的格式
+        # 函数要求: List of patients, each = list of visits, each = list of codes
+        feat_input = [
+            [visit_codes for visit_codes in patient_hist
+             if isinstance(visit_codes, list)]
+            for patient_hist in historical_conds
+        ]
+        feat_np = batch_compute_trajectory_features(feat_input, num_experts)
+        traj_features = torch.tensor(feat_np, dtype=torch.float32, device=device)
+
+    num_visits = torch.tensor(num_visits_list, dtype=torch.float32, device=device)
+    return chapter_dists, traj_features, num_visits
 
 
 def training(data_loader, model, label_tokenizer, optimizer, label_name, log_outmemory_txt_path, device):
@@ -99,10 +127,10 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
             # 开始检测是否有nan，会显著的增加运行时间
             # with autograd.detect_anomaly():
             try:
-                # TrajectoryCare 需要章节分布信息
+                # TrajectoryCare 需要章节分布和轨迹特征信息
                 if hasattr(model, 'router'):
-                    chapter_dist, num_visits = _get_chapter_info_from_batch(data, model)
-                    model_output = model(data, chapter_dist, num_visits)
+                    chapter_dist, traj_features, num_visits = _get_chapter_info_from_batch(data, model)
+                    model_output = model(data, chapter_dist, num_visits, traj_features)
                 else:
                     model_output = model(data)
                 if isinstance(model_output, (tuple, list)):

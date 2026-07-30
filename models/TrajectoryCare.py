@@ -15,7 +15,11 @@ from typing import Dict, List, Tuple, Optional
 
 
 class TrajectoryRouter(nn.Module):
-    """软路由器：计算患者与各轨迹原型的匹配分数。"""
+    """软路由器：基于患者章节分布计算与各轨迹原型的匹配分数。
+
+    这是原始路由器，输入为静态的章节词袋分布。
+    参见 TrajectoryAwareRouter 获取使用轨迹拓扑特征的新版本。
+    """
 
     def __init__(
         self,
@@ -76,15 +80,140 @@ class TrajectoryRouter(nn.Module):
         logits = base_scores + prior_sim
 
         # 冷启动退火温度
-        tau = self.tau_init * torch.exp(
-            -self.alpha * torch.clamp(num_visits - 1, min=0)
-        ) + self.tau_min
+        tau = self._compute_temperature(num_visits)
         tau = tau.view(-1, 1)  # (B, 1)
 
         # 温度缩放 softmax
         route_weights = F.softmax(logits / tau, dim=-1)  # (B, K)
 
         return route_weights
+
+    def _compute_temperature(self, num_visits: torch.Tensor) -> torch.Tensor:
+        """计算冷启动退火温度。"""
+        tau = self.tau_init * torch.exp(
+            -self.alpha * torch.clamp(num_visits - 1, min=0)
+        ) + self.tau_min
+        return tau
+
+
+class TrajectoryAwareRouter(nn.Module):
+    """轨迹感知路由器：使用患者的轨迹拓扑特征（入边/出边/频率）进行路由。
+
+    相比 TrajectoryRouter（使用静态章节词袋），此路由器的优势：
+    - 能区分演化路径不同但词袋相同的患者
+    - 可学习原型向量直观对应"轨迹模式"
+    - 余弦相似度路由具有天然可解释性
+
+    路由权重 = softmax( cos(患者轨迹特征, 可学习原型) + 线性投影 + 章节先验 , 温度)
+    """
+
+    def __init__(
+        self,
+        num_prototypes: int,
+        num_chapters: int,
+        hidden_dim: int = 128,
+        tau_init: float = 2.0,
+        tau_min: float = 0.5,
+        alpha: float = 0.3,
+        use_cosine_routing: bool = True,
+    ):
+        super().__init__()
+        self.num_prototypes = num_prototypes
+        self.num_chapters = num_chapters
+        self.hidden_dim = hidden_dim
+        self.tau_init = tau_init
+        self.tau_min = tau_min
+        self.alpha = alpha
+        self.use_cosine_routing = use_cosine_routing
+
+        # 轨迹特征维度 = num_chapters * 3（入边 + 出边 + 频率分布）
+        self.traj_feat_dim = num_chapters * 3
+
+        # === 轨迹原型向量（可学习，直观对应于 K 种轨迹模式） ===
+        # 每个原型是一个轨迹特征维度的向量，代表一种典型演化模式
+        self.prototype_vectors = nn.Parameter(
+            torch.randn(num_prototypes, self.traj_feat_dim) * 0.1
+        )
+
+        # === 章节先验（同原版路由器） ===
+        self.prototype_prior = nn.Parameter(
+            torch.randn(num_prototypes, num_chapters) * 0.1
+        )
+
+        # === 线性投影路由器（作为余弦路由的补充） ===
+        self.route_proj = nn.Sequential(
+            nn.Linear(self.traj_feat_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, num_prototypes),
+        )
+
+    def forward(
+        self,
+        traj_features: torch.Tensor,
+        patient_chapter_dist: torch.Tensor,
+        num_visits: torch.Tensor,
+    ) -> torch.Tensor:
+        """计算路由权重。
+
+        Args:
+            traj_features: (B, num_chapters * 3) 轨迹拓扑特征
+                           [in_edges(0..C-1), out_edges(C..2C-1), freq(2C..3C-1)]
+            patient_chapter_dist: (B, num_chapters) 章节分布（补充信号）
+            num_visits: (B,) 每位患者就诊数（控制退火温度）
+
+        Returns:
+            route_weights: (B, num_prototypes) softmax 归一化路由权重
+        """
+        B = traj_features.size(0)
+        device = traj_features.device
+
+        logits = 0
+
+        # === 信号 1：余弦相似度路由（可解释性强） ===
+        if self.use_cosine_routing:
+            norm_features = F.normalize(traj_features, dim=-1)        # (B, D)
+            norm_protos = F.normalize(self.prototype_vectors, dim=-1) # (K, D)
+            cosine_logits = torch.mm(norm_features, norm_protos.t())  # (B, K)
+            # 缩放到 [-sqrt(D), sqrt(D)] 防止 softmax 过度锐化
+            cosine_logits = cosine_logits * (self.traj_feat_dim ** 0.5)
+            logits = logits + cosine_logits
+
+        # === 信号 2：线性投影路由（表达能力） ===
+        proj_logits = self.route_proj(traj_features)  # (B, K)
+        logits = logits + proj_logits
+
+        # === 信号 3：章节先验相似度 ===
+        prior_sim = F.cosine_similarity(
+            patient_chapter_dist.unsqueeze(1),
+            F.softmax(self.prototype_prior, dim=-1).unsqueeze(0),
+            dim=-1
+        )  # (B, K)
+        logits = logits + prior_sim
+
+        # === 冷启动退火 ===
+        tau = self._compute_temperature(num_visits)
+        tau = tau.view(-1, 1)  # (B, 1)
+
+        route_weights = F.softmax(logits / tau, dim=-1)  # (B, K)
+        return route_weights
+
+    def _compute_temperature(self, num_visits: torch.Tensor) -> torch.Tensor:
+        """计算冷启动退火温度。"""
+        tau = self.tau_init * torch.exp(
+            -self.alpha * torch.clamp(num_visits - 1, min=0)
+        ) + self.tau_min
+        return tau
+
+    def get_prototype_similarity(
+        self, traj_features: torch.Tensor
+    ) -> torch.Tensor:
+        """导出患者与各原型的余弦相似度（用于可解释性分析）。"""
+        with torch.no_grad():
+            norm_features = F.normalize(traj_features, dim=-1)
+            norm_protos = F.normalize(self.prototype_vectors, dim=-1)
+            sim = torch.mm(norm_features, norm_protos.t())
+        return sim
 
 
 class TrajectoryExpert(nn.Module):
@@ -168,6 +297,10 @@ class TrajectoryExpert(nn.Module):
 class TrajectoryCare(nn.Module):
     """TrajectoryCare 完整模型。
 
+    支持两种路由器模式：
+    - use_traj_router=False: 使用原始 TrajectoryRouter（静态章节词袋作为输入）
+    - use_traj_router=True: 使用 TrajectoryAwareRouter（轨迹拓扑特征作为输入）
+
     Args:
         Tokenizers_visit_event: visit 事件的 tokenizer 字典
         Tokenizers_monitor_event: monitor 事件的 tokenizer 字典
@@ -175,10 +308,12 @@ class TrajectoryCare(nn.Module):
         device: 设备
         chapter_labels: (C,) 每个章节的原型标签
         num_prototypes: 轨迹原型数 K
+        num_chapters: 章节数（ICD-9: 19, ICD-10: 22）
         embedding_dim: 嵌入维度
         dropout: dropout 率
         tau_init: 冷启动初始温度
         cold_start_alpha: 退火速率
+        use_traj_router: 是否使用轨迹感知路由器
     """
 
     def __init__(
@@ -194,20 +329,33 @@ class TrajectoryCare(nn.Module):
         dropout: float = 0.5,
         tau_init: float = 2.0,
         cold_start_alpha: float = 0.3,
+        use_traj_router: bool = False,
     ):
         super().__init__()
         self.device = device
         self.num_prototypes = num_prototypes
         self.num_chapters = num_chapters
         self.output_size = output_size
+        self.use_traj_router = use_traj_router
 
-        # 路由器
-        self.router = TrajectoryRouter(
-            num_prototypes=num_prototypes,
-            num_chapters=num_chapters,
-            tau_init=tau_init,
-            alpha=cold_start_alpha,
-        )
+        # === 路由器 ===
+        if use_traj_router:
+            self.router = TrajectoryAwareRouter(
+                num_prototypes=num_prototypes,
+                num_chapters=num_chapters,
+                hidden_dim=embedding_dim,
+                tau_init=tau_init,
+                tau_min=0.5,
+                alpha=cold_start_alpha,
+            )
+        else:
+            self.router = TrajectoryRouter(
+                num_prototypes=num_prototypes,
+                num_chapters=num_chapters,
+                hidden_dim=embedding_dim,
+                tau_init=tau_init,
+                alpha=cold_start_alpha,
+            )
 
         # K 个轨迹专家
         self.experts = nn.ModuleList([
@@ -232,6 +380,7 @@ class TrajectoryCare(nn.Module):
         batch_data: Dict,
         patient_chapter_dist: Optional[torch.Tensor] = None,
         num_visits: Optional[torch.Tensor] = None,
+        traj_features: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """前向传播。
 
@@ -239,6 +388,7 @@ class TrajectoryCare(nn.Module):
             batch_data: 同 Base2_1 的输入
             patient_chapter_dist: (B, num_chapters) 患者的章节分布，可选
             num_visits: (B,) 每位患者的就诊数，可选
+            traj_features: (B, num_chapters * 3) 轨迹拓扑特征（仅 use_traj_router 时需要）
 
         Returns:
             logits: (B, output_size)
@@ -246,20 +396,28 @@ class TrajectoryCare(nn.Module):
         B = len(batch_data['visit_id'])
         device = self.device
 
-        # 路由：如果没有章节信息，使用均匀权重
-        if patient_chapter_dist is not None and num_visits is not None:
-            route_weights = self.router(patient_chapter_dist, num_visits)
+        # === 路由 ===
+        has_routing_info = (patient_chapter_dist is not None
+                            and num_visits is not None)
+        if has_routing_info:
+            if self.use_traj_router and traj_features is not None:
+                route_weights = self.router(traj_features,
+                                            patient_chapter_dist,
+                                            num_visits)
+            else:
+                route_weights = self.router(patient_chapter_dist, num_visits)
         else:
+            # 无路由信息时使用均匀权重
             route_weights = torch.ones(B, self.num_prototypes, device=device)
             route_weights = route_weights / self.num_prototypes
 
-        # 各专家独立计算
+        # === 各专家独立计算 ===
         expert_outputs = []
         for k in range(self.num_prototypes):
             out = self.experts[k](batch_data)  # (B, output_size)
             expert_outputs.append(out)
 
-        # 加权组合
+        # === 加权组合 ===
         expert_stack = torch.stack(expert_outputs, dim=1)  # (B, K, output_size)
         route_weights = route_weights.unsqueeze(-1)  # (B, K, 1)
         logits = (expert_stack * route_weights).sum(dim=1)  # (B, output_size)
@@ -270,7 +428,13 @@ class TrajectoryCare(nn.Module):
         self,
         patient_chapter_dist: torch.Tensor,
         num_visits: torch.Tensor,
+        traj_features: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """导出路由权重（用于可解释性分析）。"""
         with torch.no_grad():
-            return self.router(patient_chapter_dist, num_visits)
+            if self.use_traj_router and traj_features is not None:
+                return self.router(traj_features,
+                                   patient_chapter_dist,
+                                   num_visits)
+            else:
+                return self.router(patient_chapter_dist, num_visits)
