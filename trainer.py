@@ -115,7 +115,7 @@ def _get_chapter_info_from_batch(data, model):
 def training(data_loader, model, label_tokenizer, optimizer, label_name, log_outmemory_txt_path, device):
     model.train()
     train_loss = 0
-    asl_drug = AsymmetricLossOptimized(gamma_neg=1, gamma_pos=1).to(device)
+    asl_drug = AsymmetricLossOptimized(gamma_neg=2, gamma_pos=0).to(device)
     with tqdm(total=len(data_loader), desc="Training", unit="batch") as pbar:
         for batch_idx, data in enumerate(data_loader):
             optimizer.zero_grad()
@@ -199,7 +199,7 @@ def training_multi_task(data_loader_drug, data_loader_diag, model, label_tokeniz
     model.train()
     train_loss = 0
     batch_idx = 0
-    asl_drug = AsymmetricLossOptimized(gamma_neg=1, gamma_pos=1).to(device)
+    asl_drug = AsymmetricLossOptimized(gamma_neg=2, gamma_pos=0).to(device)
     asl_diag = AsymmetricLossOptimized(gamma_neg=4, gamma_pos=1).to(device)
     with tqdm(total=max(len(data_loader_drug), len(data_loader_diag)), desc="Training multi-task", unit="batch") as pbar:
         for data_drug, data_diag in zip_longest(data_loader_drug, data_loader_diag):
