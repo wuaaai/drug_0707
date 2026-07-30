@@ -379,7 +379,7 @@ class TrajectoryExpert(nn.Module):
 
         patient_emb = torch.cat(patient_emb_list, dim=-1)
         logits = self.fc(patient_emb)
-        return logits
+        return logits, patient_emb
 
 
 def assign_expert_types(
@@ -571,6 +571,7 @@ class TrajectoryCare(nn.Module):
         patient_chapter_dist: Optional[torch.Tensor] = None,
         num_visits: Optional[torch.Tensor] = None,
         traj_features: Optional[torch.Tensor] = None,
+        contrastive_weight: float = 0.0,
     ) -> torch.Tensor:
         """前向传播。
 
@@ -601,18 +602,40 @@ class TrajectoryCare(nn.Module):
             route_weights = torch.ones(B, self.num_prototypes, device=device)
             route_weights = route_weights / self.num_prototypes
 
-        # === 各专家独立计算 ===
+        # === 各专家独立计算（同时获取患者嵌入用于对比学习） ===
         expert_outputs = []
+        patient_embs = []
         for k in range(self.num_prototypes):
-            out = self.experts[k](batch_data)  # (B, output_size)
+            out, p_emb = self.experts[k](batch_data)  # (B, output_size), (B, D)
             expert_outputs.append(out)
+            patient_embs.append(p_emb)
 
-        # === 加权组合 ===
         expert_stack = torch.stack(expert_outputs, dim=1)  # (B, K, output_size)
-        route_weights = route_weights.unsqueeze(-1)  # (B, K, 1)
-        logits = (expert_stack * route_weights).sum(dim=1)  # (B, output_size)
+        route_w = route_weights.unsqueeze(-1)  # (B, K, 1)
+        logits = (expert_stack * route_w).sum(dim=1)  # (B, output_size)
 
-        return logits
+        # === 轨迹对比损失（Trajectory-Contrastive MoE） ===
+        # 创新: 路由权重相似的患者，其表征也应相似
+        # 对比损失 = MSE(patient_emb_similarity, routing_similarity)
+        contrastive_loss = torch.tensor(0.0, device=self.device)
+        if contrastive_weight > 0:
+            # 用路由权重加权融合各专家的患者嵌入
+            # route_weights: (B, K), patient_embs: list of (B, D)
+            p_emb_stack = torch.stack(patient_embs, dim=1)  # (B, K, D)
+            fused_emb = (p_emb_stack * route_weights.unsqueeze(-1)).sum(dim=1)  # (B, D)
+
+            # 归一化
+            emb_norm = F.normalize(fused_emb, dim=-1)
+            route_norm = F.normalize(route_weights, dim=-1)
+
+            # 成对相似度矩阵
+            emb_sim = torch.mm(emb_norm, emb_norm.t())  # (B, B)
+            route_sim = torch.mm(route_norm, route_norm.t())  # (B, B)
+
+            # MSE: 让嵌入相似度逼近路由相似度
+            contrastive_loss = F.mse_loss(emb_sim, route_sim)
+
+        return logits, contrastive_loss
 
     def get_route_weights(
         self,

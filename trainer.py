@@ -128,18 +128,24 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
             # with autograd.detect_anomaly():
             try:
                 # TrajectoryCare 需要章节分布和轨迹特征信息
+                CONTRASTIVE_W = 0.05  # 轨迹对比损失权重
                 if hasattr(model, 'router'):
                     chapter_dist, traj_features, num_visits = _get_chapter_info_from_batch(data, model)
-                    model_output = model(data, chapter_dist, num_visits, traj_features)
+                    model_output = model(data, chapter_dist, num_visits, traj_features,
+                                         contrastive_weight=CONTRASTIVE_W)
                 else:
                     model_output = model(data)
                 if isinstance(model_output, (tuple, list)):
                     out = model_output[0]   # 第一个是 logits
-                    # expert_weights = model_output[1] # 训练时用不到
+                    if len(model_output) >= 2:
+                        contrastive_loss = model_output[1]
+                    else:
+                        contrastive_loss = None
                     if isinstance(out, list):
                         out = out[0]
                 else:
                     out = model_output      # 来自 GRU, Transformer 等
+                    contrastive_loss = None
             except torch.cuda.OutOfMemoryError:
                 error_log = traceback.format_exc()
                 log_outmemory(data, error_log, log_outmemory_txt_path)
@@ -152,6 +158,10 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
             #     exit("前向输出中有NaN或Inf值！")
             # loss = F.binary_cross_entropy_with_logits(out, label)
             loss = asl_drug(out, label)
+
+            # 加入轨迹对比损失（Trajectory-Contrastive MoE）
+            if contrastive_loss is not None and CONTRASTIVE_W > 0:
+                loss = loss + CONTRASTIVE_W * contrastive_loss
             # if torch.isnan(loss).any() or torch.isinf(loss).any():
             #     exit("损失中有NaN或Inf值！")
             
