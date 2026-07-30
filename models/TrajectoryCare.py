@@ -260,6 +260,7 @@ class TrajectoryExpert(nn.Module):
         embedding_dim: int = 96,
         dropout: float = 0.5,
         expert_type: str = 'standard',
+        shared_embeddings: Optional[nn.ModuleDict] = None,
     ):
         super().__init__()
         assert expert_type in self.EXPERT_TYPE_CONFIG, \
@@ -277,15 +278,19 @@ class TrajectoryExpert(nn.Module):
         expert_hidden = config['hidden_dim'] or embedding_dim
         self.use_attention = config['use_attention']
 
-        # Embedding layers
-        self.embeddings = nn.ModuleDict()
-        for key in self.feature_keys:
-            tokenizer = self.visit_event_token[key]
-            self.embeddings[key] = nn.Embedding(
-                tokenizer.get_vocabulary_size(),
-                embedding_dim,
-                padding_idx=tokenizer.get_padding_index(),
-            )
+        # Embedding layers（若传入 shared_embeddings 则共享，否则各自独立）
+        self.embeddings = shared_embeddings if shared_embeddings is not None else nn.ModuleDict()
+        if shared_embeddings is None:
+            for key in self.feature_keys:
+                tokenizer = self.visit_event_token[key]
+                self.embeddings[key] = nn.Embedding(
+                    tokenizer.get_vocabulary_size(),
+                    embedding_dim,
+                    padding_idx=tokenizer.get_padding_index(),
+                )
+
+        # LayerNorm: 稳定 visit 级 embedding 分布
+        self.visit_ln = nn.LayerNorm(embedding_dim)
 
         # GRU layers（按 expert type 差异化）
         self.gru_layers = nn.ModuleDict()
@@ -342,6 +347,7 @@ class TrajectoryExpert(nn.Module):
             # (B, visits, events, embedding_dim)
             x = torch.sum(x, dim=2)
             # (B, visits, embedding_dim)
+            x = self.visit_ln(x)  # LayerNorm 稳定分布
 
             # === GRU 编码（按 expert type 不同） ===
             if self.expert_type == 'deep':
@@ -513,9 +519,18 @@ class TrajectoryCare(nn.Module):
                 alpha=cold_start_alpha,
             )
 
-        # === Phase 3: K 个异构轨迹专家 ===
+        # === Phase 3: K 个异构轨迹专家（共享 Embedding 层） ===
+        # 创建一组共享的 Embedding，所有专家共用（大幅减少参数量，提高训练效率）
+        shared_emb = nn.ModuleDict()
+        for key in Tokenizers_visit_event.keys():
+            tokenizer = Tokenizers_visit_event[key]
+            shared_emb[key] = nn.Embedding(
+                tokenizer.get_vocabulary_size(),
+                embedding_dim,
+                padding_idx=tokenizer.get_padding_index(),
+            )
+
         if expert_types is None:
-            # 从规则原型信息自动分配，或使用默认顺序
             auto_types = assign_expert_types(rule_proto_info, num_prototypes)
         else:
             auto_types = expert_types
@@ -526,7 +541,7 @@ class TrajectoryCare(nn.Module):
         for t in auto_types:
             type_counts[t] = type_counts.get(t, 0) + 1
         type_str = ', '.join([f'{k}={v}' for k, v in type_counts.items()])
-        print(f"  专家类型分配 ({num_prototypes}个): {type_str}")
+        print(f"  专家类型分配 ({num_prototypes}个): {type_str}  |  共享Embedding=是")
 
         self.experts = nn.ModuleList([
             TrajectoryExpert(
@@ -536,6 +551,7 @@ class TrajectoryCare(nn.Module):
                 embedding_dim=embedding_dim,
                 dropout=dropout,
                 expert_type=auto_types[k],
+                shared_embeddings=shared_emb,  # 共享 embedding
             )
             for k in range(num_prototypes)
         ])
