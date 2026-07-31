@@ -236,6 +236,51 @@ def batch_compute_trajectory_features(
     return features
 
 
+def preprocess_lab_batch(
+    lab_inj_merged_list,
+    max_items_per_visit: int = 64,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """将 raw lab_inj_merged_list 预处理为可编码的扁平序列。
+
+    原始结构: (B, visits, monitors, items) —— 每个 visit 有多个 monitor，
+    每个 monitor 是多个项目编码的列表。
+
+    输出: 每个 visit 展平为去重后的项目序列（截断到 max_items）。
+
+    Args:
+        lab_inj_merged_list: 原始检验+输液数据
+        max_items_per_visit: 每就诊最大项目数（去重后截断）
+
+    Returns:
+        flat_seqs: (B, visits, max_items) 项目编码字符串
+        mask: (B, visits) 是否有数据的掩码
+    """
+    B = len(lab_inj_merged_list)
+    max_visits = max((len(v) for v in lab_inj_merged_list), default=0)
+
+    flat_seqs = np.full((B, max_visits, max_items_per_visit), '', dtype=object)
+    mask = np.zeros((B, max_visits), dtype=bool)
+
+    for b in range(B):
+        for t, visit in enumerate(lab_inj_merged_list[b]):
+            # 展平所有 monitor 并去重
+            items = set()
+            for monitor in visit:
+                if isinstance(monitor, list):
+                    for item in monitor:
+                        s = str(item)
+                        if s != 'nan' and s.strip():
+                            items.add(s)
+            if not items:
+                continue
+            mask[b, t] = True
+            sorted_items = sorted(items)[:max_items_per_visit]
+            for j, item in enumerate(sorted_items):
+                flat_seqs[b, t, j] = item
+
+    return flat_seqs, mask
+
+
 def print_chapter_statistics(all_seqs, trans_matrix, num_experts, dataset):
     """打印章节统计信息。"""
     chapter_names = CHAPTER_NAMES_ICD9 if dataset == 'mimic3' else CHAPTER_NAMES_ICD10

@@ -283,6 +283,7 @@ class TrajectoryExpert(nn.Module):
         dropout: float = 0.5,
         expert_type: str = 'standard',
         shared_embeddings: Optional[nn.ModuleDict] = None,
+        lab_encoder: Optional[nn.Module] = None,
     ):
         super().__init__()
         assert expert_type in self.EXPERT_TYPE_CONFIG, \
@@ -293,6 +294,7 @@ class TrajectoryExpert(nn.Module):
         self.visit_event_token = Tokenizers_visit_event
         self.feature_keys = list(Tokenizers_visit_event.keys())
         self.device = device
+        self.lab_encoder = lab_encoder  # 可选检验特征编码器
 
         # 根据专家类型确定架构参数
         config = self.EXPERT_TYPE_CONFIG[expert_type]
@@ -465,6 +467,78 @@ def assign_expert_types(
     return expert_types
 
 
+class LabFeatureEncoder(nn.Module):
+    """实验室检验 + 输液特征编码器。
+
+    临床动机：ICU 药物推荐高度依赖检验结果（e.g. 钾离子高→避免补钾，
+    白细胞异常→抗生素）。原始专家只用 conditions/procedures/drugs_hist，
+    忽略了 lab_inj_merged_list（检验+输液项目）。
+
+    输入: 预处理后的 (B, visits, max_items) 扁平项目序列
+    输出: (B, embedding_dim) 检验特征向量
+    """
+
+    def __init__(
+        self,
+        tokenizer,
+        embedding_dim: int = 96,
+        dropout: float = 0.3,
+        device: torch.device = torch.device('cpu'),
+    ):
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.device = device
+        self.embedding = nn.Embedding(
+            tokenizer.get_vocabulary_size(),
+            embedding_dim,
+            padding_idx=tokenizer.get_padding_index(),
+        )
+        self.visit_gru = nn.GRU(embedding_dim, embedding_dim, batch_first=True)
+        self.ln = nn.LayerNorm(embedding_dim)
+        self.dropout = nn.Dropout(p=dropout)
+
+    def forward(self, flat_seqs: np.ndarray, mask: np.ndarray) -> torch.Tensor:
+        """编码检验特征。
+
+        Args:
+            flat_seqs: (B, visits, max_items) 字符串数组
+            mask: (B, visits) 有效就诊掩码
+
+        Returns:
+            lab_embed: (B, embedding_dim)
+        """
+        B, max_visits, max_items = flat_seqs.shape
+        # 将字符串映射为 token id
+        encoded = np.zeros((B, max_visits, max_items), dtype=np.int64)
+        for b in range(B):
+            for t in range(max_visits):
+                for j in range(max_items):
+                    tok = flat_seqs[b, t, j]
+                    if tok == '':
+                        encoded[b, t, j] = self.tokenizer.get_padding_index()
+                    else:
+                        encoded[b, t, j] = self.tokenizer.vocabulary(tok)
+
+        x = torch.tensor(encoded, dtype=torch.long, device=self.device)
+        # (B, visits, items)
+        x = self.dropout(self.embedding(x))
+        # (B, visits, items, D) -> sum over items -> (B, visits, D)
+        x = x.sum(dim=2)
+        x = self.ln(x)
+
+        # GRU 时序建模
+        output, hidden = self.visit_gru(x)
+        # 用 mask 对 output 做加权平均
+        mask_t = torch.tensor(mask, dtype=torch.float32, device=self.device)
+        mask_t = mask_t.unsqueeze(-1)  # (B, visits, 1)
+        weighted = (output * mask_t).sum(dim=1)
+        denom = mask_t.sum(dim=1).clamp(min=1)
+        pooled = weighted / denom  # (B, D)
+
+        # 无有效就诊时用 0 向量
+        return pooled
+
+
 class DrugCooccurrenceModule(nn.Module):
     """药物共现传播模块：利用药物组合的结构化先验。
 
@@ -556,6 +630,9 @@ class TrajectoryCare(nn.Module):
         expert_types: Optional[List[str]] = None,
         use_drug_cooccurrence: bool = False,
         cooccur_alpha: float = 0.3,
+        use_lab_encoder: bool = False,
+        lab_tokenizer=None,
+        lab_embedding_dim: int = 96,
     ):
         """初始化 TrajectoryCare 模型。
 
@@ -563,6 +640,8 @@ class TrajectoryCare(nn.Module):
             rule_proto_info: Phase 2 规则压缩的详情 dict（用于分配专家类型）。
             expert_types: (K,) list，每个专家的架构类型。
                 Phase 3: 若提供，创建异构专家；否则所有专家使用 'standard' 类型。
+            use_lab_encoder: 是否启用检验特征编码器。
+            lab_tokenizer: lab_inj_merged_list 的 tokenizer。
         """
         super().__init__()
         self.device = device
@@ -578,6 +657,21 @@ class TrajectoryCare(nn.Module):
                 output_size, alpha=cooccur_alpha)
         else:
             self.drug_cooccur = None
+
+        # === 检验特征编码器（lab → 药物预测直通通道） ===
+        self.use_lab_encoder = use_lab_encoder
+        if use_lab_encoder and lab_tokenizer is not None:
+            self.lab_encoder = LabFeatureEncoder(
+                lab_tokenizer, embedding_dim=lab_embedding_dim,
+                dropout=dropout, device=device)
+            # lab 嵌入 → 药物 logits
+            self.lab_proj = nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(lab_embedding_dim, output_size),
+            )
+        else:
+            self.lab_encoder = None
+            self.lab_proj = None
 
         # === 路由器 ===
         if use_traj_router:
@@ -696,6 +790,16 @@ class TrajectoryCare(nn.Module):
         # === 药物共现传播（利用组合结构先验） ===
         if self.use_drug_cooccurrence and self.drug_cooccur is not None:
             logits = self.drug_cooccur(logits)
+
+        # === 检验特征通道（lab → 药物预测） ===
+        if self.use_lab_encoder and self.lab_encoder is not None:
+            raw_lab = batch_data.get('lab_inj_merged_list')
+            if raw_lab is not None:
+                from preprocess.trajectory_data_builder import preprocess_lab_batch
+                flat_seqs, lab_mask = preprocess_lab_batch(raw_lab)
+                lab_embed = self.lab_encoder(flat_seqs, lab_mask)  # (B, D)
+                lab_logits = self.lab_proj(lab_embed)  # (B, output_size)
+                logits = logits + lab_logits
 
         # === 轨迹对比损失（Trajectory-Contrastive MoE） ===
         # 创新: 路由权重相似的患者，其表征也应相似

@@ -174,6 +174,8 @@ def main(args):
             rule_prototypes=rule_prototypes,
             expert_types=expert_types,
             use_drug_cooccurrence=args.use_drug_cooccurrence,
+            use_lab_encoder=args.use_lab_encoder,
+            lab_tokenizer=Tokenizers_monitor_event.get('lab_inj_merged_list') if args.use_lab_encoder else None,
         )
     else:
         print("没有这个模型")
@@ -375,6 +377,8 @@ if __name__ == '__main__':
                         help="Use trajectory-aware router instead of bag-of-chapters router")
     parser.add_argument("--use_drug_cooccurrence", action="store_true",
                         help="Use drug co-occurrence propagation module")
+    parser.add_argument("--use_lab_encoder", action="store_true",
+                        help="Use lab/infusion feature encoder (lab_inj_merged_list)")
     args = parser.parse_args()
 
     main(args)
