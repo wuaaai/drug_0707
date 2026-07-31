@@ -173,6 +173,7 @@ def main(args):
             use_traj_router=args.use_traj_router,
             rule_prototypes=rule_prototypes,
             expert_types=expert_types,
+            use_drug_cooccurrence=args.use_drug_cooccurrence,
         )
     else:
         print("没有这个模型")
@@ -372,6 +373,8 @@ if __name__ == '__main__':
     parser.add_argument("--coef_loss_cvc", type=float, default=0.3, help="coefficient of cvc loss")
     parser.add_argument("--use_traj_router", action="store_true",
                         help="Use trajectory-aware router instead of bag-of-chapters router")
+    parser.add_argument("--use_drug_cooccurrence", action="store_true",
+                        help="Use drug co-occurrence propagation module")
     args = parser.parse_args()
 
     main(args)

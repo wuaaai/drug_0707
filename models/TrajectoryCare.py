@@ -465,6 +465,51 @@ def assign_expert_types(
     return expert_types
 
 
+class DrugCooccurrenceModule(nn.Module):
+    """药物共现传播模块：利用药物组合的结构化先验。
+
+    药物推荐本质是组合预测（平均每次开 34 种药）。独立 sigmoid 预测
+    忽略了药物间的共现结构。此模块在 logits 上做一次共现传播：
+    预测到药物 A → 提升与 A 常共同开出的药物 B。
+
+    logits_new = logits + alpha * (W_cooccur @ sigmoid(logits))
+
+    W_cooccur 可学习（初始化为单位阵，不改变初始行为），
+    通过训练数据自动学习药物组合模式。
+    """
+
+    def __init__(self, num_drugs: int, alpha: float = 0.3,
+                 init_identity: bool = True):
+        super().__init__()
+        self.num_drugs = num_drugs
+        self.alpha = alpha
+
+        if init_identity:
+            # 初始化为单位阵：初始不影响预测，随训练学习共现模式
+            self.cooccur = nn.Parameter(torch.zeros(num_drugs, num_drugs))
+            nn.init.eye_(self.cooccur)
+            # 零对角（避免自增强）
+            with torch.no_grad():
+                self.cooccur.fill_diagonal_(0)
+        else:
+            self.cooccur = nn.Parameter(
+                torch.zeros(num_drugs, num_drugs) * 0.01)
+
+    def forward(self, logits: torch.Tensor) -> torch.Tensor:
+        """共现传播。
+
+        Args:
+            logits: (B, num_drugs) 原始预测 logits
+
+        Returns:
+            logits + alpha * (cooccur @ sigmoid(logits)): (B, num_drugs)
+        """
+        prob = torch.sigmoid(logits)
+        # (B, D) @ (D, D) -> (B, D)
+        boost = torch.mm(prob, self.cooccur)
+        return logits + self.alpha * boost
+
+
 class TrajectoryCare(nn.Module):
     """TrajectoryCare 完整模型。
 
@@ -509,6 +554,8 @@ class TrajectoryCare(nn.Module):
         rule_prototypes: Optional[np.ndarray] = None,
         rule_proto_info: Optional[Dict] = None,
         expert_types: Optional[List[str]] = None,
+        use_drug_cooccurrence: bool = False,
+        cooccur_alpha: float = 0.3,
     ):
         """初始化 TrajectoryCare 模型。
 
@@ -523,6 +570,14 @@ class TrajectoryCare(nn.Module):
         self.num_chapters = num_chapters
         self.output_size = output_size
         self.use_traj_router = use_traj_router
+
+        # === 药物共现传播模块 ===
+        self.use_drug_cooccurrence = use_drug_cooccurrence
+        if use_drug_cooccurrence:
+            self.drug_cooccur = DrugCooccurrenceModule(
+                output_size, alpha=cooccur_alpha)
+        else:
+            self.drug_cooccur = None
 
         # === 路由器 ===
         if use_traj_router:
@@ -637,6 +692,10 @@ class TrajectoryCare(nn.Module):
         expert_stack = torch.stack(expert_outputs, dim=1)  # (B, K, output_size)
         route_w = route_weights.unsqueeze(-1)  # (B, K, 1)
         logits = (expert_stack * route_w).sum(dim=1)  # (B, output_size)
+
+        # === 药物共现传播（利用组合结构先验） ===
+        if self.use_drug_cooccurrence and self.drug_cooccur is not None:
+            logits = self.drug_cooccur(logits)
 
         # === 轨迹对比损失（Trajectory-Contrastive MoE） ===
         # 创新: 路由权重相似的患者，其表征也应相似
