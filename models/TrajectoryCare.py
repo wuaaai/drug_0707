@@ -96,15 +96,34 @@ class TrajectoryRouter(nn.Module):
         return tau
 
 
+class TemporalTrajectoryEncoder(nn.Module):
+    """时序轨迹编码器：用轻量 GRU 建模就诊序列的时序依赖。
+
+    原始的 TrajectoryAwareRouter 使用静态的入边/出边/频率统计(3C特征)，
+    丢失了就诊之间的时序顺序。此编码器通过 GRU 捕获动态转移模式。
+
+    输入: (B, visits, C) 每就诊的章节出现向量
+    输出: (B, 2*H) = [last_hidden || mean_pool] 时序轨迹表征
+    """
+
+    def __init__(self, num_chapters: int, hidden_dim: int = 64):
+        super().__init__()
+        self.visit_encoder = nn.Sequential(
+            nn.Linear(num_chapters, hidden_dim), nn.ReLU())
+        self.gru = nn.GRU(hidden_dim, hidden_dim, batch_first=True)
+
+    def forward(self, visit_seqs: torch.Tensor) -> torch.Tensor:
+        x = self.visit_encoder(visit_seqs)
+        output, hidden = self.gru(x)
+        last = hidden.squeeze(0)
+        mean_pool = output.mean(dim=1)
+        return torch.cat([last, mean_pool], dim=-1)
+
+
 class TrajectoryAwareRouter(nn.Module):
-    """轨迹感知路由器：使用患者的轨迹拓扑特征（入边/出边/频率）进行路由。
+    """轨迹感知路由器：使用患者的轨迹特征进行路由。
 
-    相比 TrajectoryRouter（使用静态章节词袋），此路由器的优势：
-    - 能区分演化路径不同但词袋相同的患者
-    - 可学习原型向量直观对应"轨迹模式"
-    - 余弦相似度路由具有天然可解释性
-
-    路由权重 = softmax( cos(患者轨迹特征, 可学习原型) + 线性投影 + 章节先验 , 温度)
+    路由信号 = 静态拓扑特征(3C) + 可选时序编码(2*H) + 章节先验
     """
 
     def __init__(
@@ -117,14 +136,8 @@ class TrajectoryAwareRouter(nn.Module):
         alpha: float = 0.3,
         use_cosine_routing: bool = True,
         rule_prototypes: Optional[np.ndarray] = None,
+        use_temporal_encoder: bool = False,
     ):
-        """轨迹感知路由器。
-
-        Args:
-            rule_prototypes: (K, 3*C) ndarray，来自 compress_rules_to_prototypes() 的规则原型。
-                若提供，用于初始化 prototype_vectors（而非随机初始化）。
-                Phase 2: 将 Jensen 规则先验引入路由。
-        """
         super().__init__()
         self.num_prototypes = num_prototypes
         self.num_chapters = num_chapters
@@ -133,29 +146,30 @@ class TrajectoryAwareRouter(nn.Module):
         self.tau_min = tau_min
         self.alpha = alpha
         self.use_cosine_routing = use_cosine_routing
+        self.use_temporal_encoder = use_temporal_encoder
 
-        # 轨迹特征维度 = num_chapters * 3（入边 + 出边 + 频率分布）
         self.traj_feat_dim = num_chapters * 3
-
-        # === 轨迹原型向量（可学习，直观对应于 K 种轨迹模式） ===
-        # Phase 2: 若提供了 rule_prototypes，用它初始化（而非随机）
-        if rule_prototypes is not None:
-            assert rule_prototypes.shape == (num_prototypes, self.traj_feat_dim), \
-                f'rule_prototypes shape mismatch: {rule_prototypes.shape} vs {(num_prototypes, self.traj_feat_dim)}'
-            init_tensor = torch.tensor(rule_prototypes, dtype=torch.float32)
+        if use_temporal_encoder:
+            self.temporal_enc = TemporalTrajectoryEncoder(num_chapters, hidden_dim // 2)
+            router_input_dim = self.traj_feat_dim + hidden_dim  # 3C + 2*(H/2)
         else:
-            init_tensor = torch.randn(num_prototypes, self.traj_feat_dim) * 0.1
+            self.temporal_enc = None
+            router_input_dim = self.traj_feat_dim
 
+        # 轨迹原型向量（维度与路由输入对齐）
+        init_tensor = torch.randn(num_prototypes, router_input_dim) * 0.1
+        if rule_prototypes is not None and not use_temporal_encoder:
+            # 规则原型仅用于静态特征维度的初始化
+            assert rule_prototypes.shape == (num_prototypes, self.traj_feat_dim)
+            init_tensor[:, :self.traj_feat_dim] = torch.tensor(rule_prototypes, dtype=torch.float32)
         self.prototype_vectors = nn.Parameter(init_tensor)
 
-        # === 章节先验（同原版路由器） ===
         self.prototype_prior = nn.Parameter(
-            torch.randn(num_prototypes, num_chapters) * 0.1
-        )
+            torch.randn(num_prototypes, num_chapters) * 0.1)
 
-        # === 线性投影路由器（作为余弦路由的补充） ===
+        # 路由投影（输入维度随时序编码器扩展）
         self.route_proj = nn.Sequential(
-            nn.Linear(self.traj_feat_dim, hidden_dim),
+            nn.Linear(router_input_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(hidden_dim, num_prototypes),
@@ -166,49 +180,57 @@ class TrajectoryAwareRouter(nn.Module):
         traj_features: torch.Tensor,
         patient_chapter_dist: torch.Tensor,
         num_visits: torch.Tensor,
+        visit_chapter_seqs: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """计算路由权重。
 
+        三通道路由信号融合：
+        1. 静态拓扑特征（in/out/freq 三维）
+        2. 时序编码特征（GRU on visit sequences）[新增]
+        3. 章节先验相似度
+
         Args:
-            traj_features: (B, num_chapters * 3) 轨迹拓扑特征
-                           [in_edges(0..C-1), out_edges(C..2C-1), freq(2C..3C-1)]
-            patient_chapter_dist: (B, num_chapters) 章节分布（补充信号）
-            num_visits: (B,) 每位患者就诊数（控制退火温度）
+            traj_features: (B, C*3) 静态轨迹拓扑特征
+            patient_chapter_dist: (B, C) 章节分布
+            num_visits: (B,) 就诊数
+            visit_chapter_seqs: (B, max_visits, C) 就诊级章节序列 [新增]
 
         Returns:
-            route_weights: (B, num_prototypes) softmax 归一化路由权重
+            route_weights: (B, K) 归一化路由权重
         """
         B = traj_features.size(0)
         device = traj_features.device
+
+        # === 融合轨迹特征（静态 + 时序） ===
+        if self.use_temporal_encoder and visit_chapter_seqs is not None:
+            temporal_embed = self.temporal_enc(visit_chapter_seqs)  # (B, H)
+            router_input = torch.cat([traj_features, temporal_embed], dim=-1)
+        else:
+            router_input = traj_features
 
         logits = 0
 
         # === 信号 1：余弦相似度路由（可解释性强） ===
         if self.use_cosine_routing:
-            norm_features = F.normalize(traj_features, dim=-1)        # (B, D)
-            norm_protos = F.normalize(self.prototype_vectors, dim=-1) # (K, D)
-            cosine_logits = torch.mm(norm_features, norm_protos.t())  # (B, K)
-            # 缩放到 [-sqrt(D), sqrt(D)] 防止 softmax 过度锐化
-            cosine_logits = cosine_logits * (self.traj_feat_dim ** 0.5)
+            norm_features = F.normalize(router_input, dim=-1)
+            norm_protos = F.normalize(self.prototype_vectors, dim=-1)
+            cosine_logits = torch.mm(norm_features, norm_protos.t())
+            cosine_logits = cosine_logits * (router_input.size(-1) ** 0.5)
             logits = logits + cosine_logits
 
-        # === 信号 2：线性投影路由（表达能力） ===
-        proj_logits = self.route_proj(traj_features)  # (B, K)
+        # === 信号 2：线性投影路由 ===
+        proj_logits = self.route_proj(router_input)
         logits = logits + proj_logits
 
         # === 信号 3：章节先验相似度 ===
         prior_sim = F.cosine_similarity(
             patient_chapter_dist.unsqueeze(1),
-            F.softmax(self.prototype_prior, dim=-1).unsqueeze(0),
-            dim=-1
-        )  # (B, K)
+            F.softmax(self.prototype_prior, dim=-1).unsqueeze(0), dim=-1)
         logits = logits + prior_sim
 
         # === 冷启动退火 ===
-        tau = self._compute_temperature(num_visits)
-        tau = tau.view(-1, 1)  # (B, 1)
-
-        route_weights = F.softmax(logits / tau, dim=-1)  # (B, K)
+        tau = self._compute_temperature(num_visits).view(-1, 1)
+        route_weights = F.softmax(logits / tau, dim=-1)
         return route_weights
 
     def _compute_temperature(self, num_visits: torch.Tensor) -> torch.Tensor:
@@ -571,6 +593,7 @@ class TrajectoryCare(nn.Module):
         patient_chapter_dist: Optional[torch.Tensor] = None,
         num_visits: Optional[torch.Tensor] = None,
         traj_features: Optional[torch.Tensor] = None,
+        visit_chapter_seqs: Optional[torch.Tensor] = None,
         contrastive_weight: float = 0.0,
     ) -> torch.Tensor:
         """前向传播。
@@ -594,7 +617,8 @@ class TrajectoryCare(nn.Module):
             if self.use_traj_router and traj_features is not None:
                 route_weights = self.router(traj_features,
                                             patient_chapter_dist,
-                                            num_visits)
+                                            num_visits,
+                                            visit_chapter_seqs)
             else:
                 route_weights = self.router(patient_chapter_dist, num_visits)
         else:
@@ -635,7 +659,21 @@ class TrajectoryCare(nn.Module):
             # MSE: 让嵌入相似度逼近路由相似度
             contrastive_loss = F.mse_loss(emb_sim, route_sim)
 
-        return logits, contrastive_loss
+        # === 专家解耦损失（Expert Disentangle Loss） ===
+        # 协方差解耦: 强制不同专家的输出去相关
+        # 如果两个专家总是预测相似的药物组合，它们的信息是冗余的
+        K = self.num_prototypes
+        disentangle_loss = torch.tensor(0.0, device=self.device)
+        if contrastive_weight > 0 and K > 1:
+            # expert_stack: (B, K, output_size)
+            # 转置为 (K, B*output_size) 便于计算专家间协方差
+            expert_flat = expert_stack.permute(1, 0, 2).reshape(K, -1)
+            expert_centered = expert_flat - expert_flat.mean(dim=1, keepdim=True)
+            covariance = (expert_centered @ expert_centered.T) / (expert_centered.size(1) - 1)
+            diag = torch.diag_embed(torch.diagonal(covariance))
+            disentangle_loss = torch.norm(covariance - diag, p='fro') / K
+
+        return logits, contrastive_loss, disentangle_loss
 
     def get_route_weights(
         self,

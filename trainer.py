@@ -108,8 +108,25 @@ def _get_chapter_info_from_batch(data, model):
         feat_np = batch_compute_trajectory_features(feat_input, num_experts)
         traj_features = torch.tensor(feat_np, dtype=torch.float32, device=device)
 
+    # === 4. 计算就诊级章节序列（用于时序轨迹编码器） ===
+    visit_chapter_seqs = None
+    if (hasattr(model, 'use_traj_router') and model.use_traj_router
+            and hasattr(model.router, 'use_temporal_encoder')
+            and model.router.use_temporal_encoder):
+        max_visits = max(num_visits_list) if num_visits_list else 0
+        if max_visits > 0:
+            visit_chapter_seqs = torch.zeros(B, max_visits, num_experts, device=device)
+            for b in range(B):
+                for t, visit_codes in enumerate(historical_conds[b]):
+                    if not isinstance(visit_codes, list):
+                        continue
+                    for code in visit_codes:
+                        eid = map_ccs_to_expert(str(code))
+                        if 0 <= eid < num_experts:
+                            visit_chapter_seqs[b, t, eid] = 1.0
+
     num_visits = torch.tensor(num_visits_list, dtype=torch.float32, device=device)
-    return chapter_dists, traj_features, num_visits
+    return chapter_dists, traj_features, num_visits, visit_chapter_seqs
 
 
 def training(data_loader, model, label_tokenizer, optimizer, label_name, log_outmemory_txt_path, device):
@@ -130,22 +147,29 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
                 # TrajectoryCare 需要章节分布和轨迹特征信息
                 CONTRASTIVE_W = 0.05  # 轨迹对比损失权重
                 if hasattr(model, 'router'):
-                    chapter_dist, traj_features, num_visits = _get_chapter_info_from_batch(data, model)
+                    chapter_dist, traj_features, num_visits, visit_seqs = _get_chapter_info_from_batch(data, model)
                     model_output = model(data, chapter_dist, num_visits, traj_features,
+                                         visit_chapter_seqs=visit_seqs,
                                          contrastive_weight=CONTRASTIVE_W)
                 else:
                     model_output = model(data)
                 if isinstance(model_output, (tuple, list)):
                     out = model_output[0]   # 第一个是 logits
-                    if len(model_output) >= 2:
+                    if len(model_output) >= 3:
                         contrastive_loss = model_output[1]
+                        disentangle_loss = model_output[2]
+                    elif len(model_output) >= 2:
+                        contrastive_loss = model_output[1]
+                        disentangle_loss = None
                     else:
                         contrastive_loss = None
+                        disentangle_loss = None
                     if isinstance(out, list):
                         out = out[0]
                 else:
-                    out = model_output      # 来自 GRU, Transformer 等
+                    out = model_output
                     contrastive_loss = None
+                    disentangle_loss = None
             except torch.cuda.OutOfMemoryError:
                 error_log = traceback.format_exc()
                 log_outmemory(data, error_log, log_outmemory_txt_path)
@@ -162,6 +186,9 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
             # 加入轨迹对比损失（Trajectory-Contrastive MoE）
             if contrastive_loss is not None and CONTRASTIVE_W > 0:
                 loss = loss + CONTRASTIVE_W * contrastive_loss
+            # 加入专家解耦损失（Expert Disentangle）
+            if disentangle_loss is not None and CONTRASTIVE_W > 0:
+                loss = loss + CONTRASTIVE_W * disentangle_loss
             # if torch.isnan(loss).any() or torch.isinf(loss).any():
             #     exit("损失中有NaN或Inf值！")
             
@@ -310,8 +337,9 @@ def evaluating(data_loader, model, label_tokenizer, label_name, device):
 
                 # TrajectoryCare 评估时也传入路由信息（与训练一致）
                 if hasattr(model, 'router'):
-                    chapter_dist, traj_features, num_visits = _get_chapter_info_from_batch(data, model)
-                    model_output = model(data, chapter_dist, num_visits, traj_features)
+                    chapter_dist, traj_features, num_visits, visit_seqs = _get_chapter_info_from_batch(data, model)
+                    model_output = model(data, chapter_dist, num_visits, traj_features,
+                                         visit_chapter_seqs=visit_seqs)
                 else:
                     model_output = model(data)
                 # 检查输出是否为元组 (来自 Multi_DT)
