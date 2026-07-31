@@ -183,6 +183,18 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
             # loss = F.binary_cross_entropy_with_logits(out, label)
             loss = asl_drug(out, label)
 
+            # === 加入 Jaccard 近似损失（直接优化目标指标） ===
+            # Jaccard = TP / (TP + FP + FN)
+            # 使用可微的软 Jaccard: p=σ(logits), J = Σ(p*y) / Σ(p + y - p*y)
+            JACCARD_W = 0.3  # Jaccard 损失权重
+            if JACCARD_W > 0:
+                prob = torch.sigmoid(out)
+                intersection = (prob * label).sum(dim=1)
+                union = (prob + label - prob * label).sum(dim=1)
+                soft_jaccard = intersection / (union + 1e-8)
+                jaccard_loss = (1.0 - soft_jaccard).mean()
+                loss = loss + JACCARD_W * jaccard_loss
+
             # 加入轨迹对比损失（Trajectory-Contrastive MoE）
             if contrastive_loss is not None and CONTRASTIVE_W > 0:
                 loss = loss + CONTRASTIVE_W * contrastive_loss
