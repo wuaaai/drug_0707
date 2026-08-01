@@ -508,16 +508,30 @@ class LabFeatureEncoder(nn.Module):
             lab_embed: (B, embedding_dim)
         """
         B, max_visits, max_items = flat_seqs.shape
-        # 将字符串映射为 token id
+        pad_idx = self.tokenizer.get_padding_index()
+
+        # 预构建 token->idx 安全映射（未知 token 用 padding）
+        # 避免 test 集出现 OOV 编码时抛 ValueError 崩溃
+        if not hasattr(self, '_safe_vocab'):
+            self._safe_vocab = {}
+        known = self._safe_vocab
+
+        # 收集所有需要查找的 token（去重，减少 lookup 次数）
+        all_tokens = set(flat_seqs.flatten().tolist()) - {''}
+        for tok in all_tokens:
+            if tok not in known:
+                try:
+                    known[tok] = self.tokenizer.vocabulary(tok)
+                except (ValueError, KeyError):
+                    known[tok] = pad_idx
+
+        # 向量化映射
         encoded = np.zeros((B, max_visits, max_items), dtype=np.int64)
         for b in range(B):
             for t in range(max_visits):
                 for j in range(max_items):
                     tok = flat_seqs[b, t, j]
-                    if tok == '':
-                        encoded[b, t, j] = self.tokenizer.get_padding_index()
-                    else:
-                        encoded[b, t, j] = self.tokenizer.vocabulary(tok)
+                    encoded[b, t, j] = known.get(tok, pad_idx) if tok != '' else pad_idx
 
         x = torch.tensor(encoded, dtype=torch.long, device=self.device)
         # (B, visits, items)
