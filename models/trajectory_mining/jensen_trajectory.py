@@ -9,6 +9,54 @@ Jensen 式 CCS 级轨迹挖掘。
 
 与章节级方法的本质区别：直接在 CCS 编码（~270 种）上操作，不归约到 19 个章节。
 """
+"""
+
+  第 1 步：找"病与病之间显著的转移"（main.py:77-81）
+
+  从所有多就诊患者的历史里，统计"这次得了病 A，下次得了病 B"的组合，然后做统计检验，只保留真正显著的转移：
+
+  # main.py:77-81
+  transitions = collect_transitions(all_ccs_seqs, min_occurrence=20)  # 收集A→B转移
+  significant = compute_rr_and_significance(transitions, total, alpha=0.001)  # 统计检验
+  strong = [s for s in significant if s['rr'] > 2.0]  # 只留RR>2的
+
+  跑遍所有病人，数"得了 A 的人，下次得 B 的概率是不是明显偏高"。
+  - RR > 2：得 A 的人，得 B 的风险是没得 A 的人的 2 倍以上
+  - Bonferroni 校正 p < 0.001：排除随机巧合
+  - 转移对至少出现 20 次：排除稀有情况
+
+  ---
+  第 2 步：把转移"按疾病的来龙去脉"分组（main.py:83-91）
+
+  每个显著转移都是一条"A → B"的边。现在把 A、B 都映射到它们所属的 ICD
+  章节（比如心衰、高血压都属于循环系统），然后按"从哪个章节 → 到哪个章节"分组：
+
+  # main.py:83-91
+  chapter_groups = defaultdict(list)
+  for s in strong:
+      ch_pair = (map_ccs_to_expert(s['from']), map_ccs_to_expert(s['to']))
+      chapter_groups[ch_pair].append(s)
+
+  通俗理解：把所有"循环→呼吸"的转移归一堆、"代谢→循环"归另一堆……每个堆代表一种典型的疾病演化路径。要求每堆至少有 5
+  条，且源和目标不是同一个章节。
+
+  ---
+  第 3 步：挑最大的几堆当作"疾病原型"（main.py:94-100）
+
+  # main.py:94-100
+  sorted_groups = sorted(valid_groups.items(), key=lambda x: -len(x[1]))
+  proto_groups = [(ch, pairs) for ch, pairs in sorted_groups if len(pairs) >= 15][:8]
+  num_prototypes = len(proto_groups)
+
+  通俗理解：按堆的大小排序、最多 8 个最大的堆作为原型。每个原型 = 一条"从某类病 →
+  到某类病"的统计验证演化路径。
+
+  原型0: E9→E7    # 呼吸→循环
+  原型1: E7→E9    # 循环→呼吸
+  原型2: E7→E2    # 循环→代谢
+
+
+"""
 
 import numpy as np
 from typing import List, Dict, Tuple, Set, Optional

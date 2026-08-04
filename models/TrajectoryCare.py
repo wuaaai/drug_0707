@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 
-
+ # 基础路由器
 class TrajectoryRouter(nn.Module):
     """软路由器：基于患者章节分布计算与各轨迹原型的匹配分数。
 
@@ -95,7 +95,7 @@ class TrajectoryRouter(nn.Module):
         ) + self.tau_min
         return tau
 
-
+# 时序轨迹编码器
 class TemporalTrajectoryEncoder(nn.Module):
     """时序轨迹编码器：用轻量 GRU 建模就诊序列的时序依赖。
 
@@ -119,7 +119,7 @@ class TemporalTrajectoryEncoder(nn.Module):
         mean_pool = output.mean(dim=1)
         return torch.cat([last, mean_pool], dim=-1)
 
-
+# 轨迹感知路由器
 class TrajectoryAwareRouter(nn.Module):
     """轨迹感知路由器：使用患者的轨迹特征进行路由。
 
@@ -250,7 +250,7 @@ class TrajectoryAwareRouter(nn.Module):
             sim = torch.mm(norm_features, norm_protos.t())
         return sim
 
-
+# 异构专家
 class TrajectoryExpert(nn.Module):
     """单个轨迹专家 —— 支持多种架构变体的 GRU 编码器 + 输出头。
 
@@ -466,7 +466,12 @@ def assign_expert_types(
 
     return expert_types
 
+ # 检验特征编码器
+ # 检验特征编码器
 
+
+ # 检验特征编码器
+# 检验特征编码器
 class LabFeatureEncoder(nn.Module):
     """实验室检验 + 输液特征编码器。
 
@@ -496,6 +501,30 @@ class LabFeatureEncoder(nn.Module):
         self.visit_gru = nn.GRU(embedding_dim, embedding_dim, batch_first=True)
         self.ln = nn.LayerNorm(embedding_dim)
         self.dropout = nn.Dropout(p=dropout)
+        self.pad_idx = tokenizer.get_padding_index()
+
+        # 预构建 token->idx 映射（一次性，无运行时状态累积）
+        # 未知 token 映射到 padding，避免 OOV 崩溃
+        self._token2idx = {}
+        try:
+            for tok, idx in tokenizer.token2idx.items():
+                self._token2idx[str(tok)] = idx
+        except AttributeError:
+            pass  # 若 tokenizer 无 token2idx，运行时按需处理
+
+    def _safe_lookup(self, tok):
+        """安全的 token -> idx 查询。"""
+        if tok == '':
+            return self.pad_idx
+        idx = self._token2idx.get(tok, None)
+        if idx is None:
+            # 未知 token：尝试实时查询，失败则用 padding
+            try:
+                idx = self.tokenizer.vocabulary(tok)
+                self._token2idx[tok] = idx
+            except (ValueError, KeyError, AttributeError):
+                return self.pad_idx
+        return idx
 
     def forward(self, flat_seqs: np.ndarray, mask: np.ndarray) -> torch.Tensor:
         """编码检验特征。
@@ -507,31 +536,9 @@ class LabFeatureEncoder(nn.Module):
         Returns:
             lab_embed: (B, embedding_dim)
         """
-        B, max_visits, max_items = flat_seqs.shape
-        pad_idx = self.tokenizer.get_padding_index()
-
-        # 预构建 token->idx 安全映射（未知 token 用 padding）
-        # 避免 test 集出现 OOV 编码时抛 ValueError 崩溃
-        if not hasattr(self, '_safe_vocab'):
-            self._safe_vocab = {}
-        known = self._safe_vocab
-
-        # 收集所有需要查找的 token（去重，减少 lookup 次数）
-        all_tokens = set(flat_seqs.flatten().tolist()) - {''}
-        for tok in all_tokens:
-            if tok not in known:
-                try:
-                    known[tok] = self.tokenizer.vocabulary(tok)
-                except (ValueError, KeyError):
-                    known[tok] = pad_idx
-
-        # 向量化映射
-        encoded = np.zeros((B, max_visits, max_items), dtype=np.int64)
-        for b in range(B):
-            for t in range(max_visits):
-                for j in range(max_items):
-                    tok = flat_seqs[b, t, j]
-                    encoded[b, t, j] = known.get(tok, pad_idx) if tok != '' else pad_idx
+        # 向量化字符串 -> idx 转换（np.vectorize，避免 Python 三重循环）
+        vlookup = np.vectorize(self._safe_lookup, otypes=[np.int64])
+        encoded = vlookup(flat_seqs)
 
         x = torch.tensor(encoded, dtype=torch.long, device=self.device)
         # (B, visits, items)
@@ -552,7 +559,7 @@ class LabFeatureEncoder(nn.Module):
         # 无有效就诊时用 0 向量
         return pooled
 
-
+# 药物共现传播
 class DrugCooccurrenceModule(nn.Module):
     """药物共现传播模块：利用药物组合的结构化先验。
 
