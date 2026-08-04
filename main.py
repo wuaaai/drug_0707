@@ -160,6 +160,55 @@ def main(args):
         if args.use_traj_router:
             print(f"  专家类型: {expert_types}")
 
+        # === 路线C: 异构时序知识图谱 (可选，替代章节原型) ===
+        diag_to_proto = None
+        num_chapters_effective = num_chapters
+        use_traj_router_eff = args.use_traj_router
+        if args.use_hetero_kg:
+            # 路线C用原型激活向量路由，不走轨迹特征，强制用 TrajectoryRouter
+            use_traj_router_eff = False
+            print("\n路线C: 异构时序知识图谱 + Metapath2Vec 治疗演化原型...")
+            from models.trajectory_mining.hetero_kg import (
+                sample_to_visits, build_hetero_edges,
+                discover_prototypes_metapath2vec)
+            # 构建异构时序图 (诊断/手术/用药)
+            all_visits = []
+            disease_nodes = set()
+            for sample in task_dataset.samples:
+                visits = sample_to_visits(sample)
+                if len(visits) >= 2:
+                    all_visits.append(visits)
+                    for v in visits:
+                        for d in v['D']:
+                            disease_nodes.add('D_' + d)
+            print(f"  多就诊患者: {len(all_visits)}, 诊断节点: {len(disease_nodes)}")
+            edges = build_hetero_edges(all_visits)
+            disease_list = sorted(disease_nodes)
+            kg_k = args.num_prototypes if args.num_prototypes > 0 else None
+            diag_labels, hkg_info = discover_prototypes_metapath2vec(
+                edges, disease_list, num_prototypes=kg_k, device=device)
+            num_prototypes = hkg_info['num_prototypes']
+            # 路线C路由维度 = 原型数 K (不用章节)
+            num_chapters_effective = num_prototypes
+            chapter_labels = np.zeros(num_chapters_effective, dtype=int)
+            # 诊断→原型映射 (供 trainer 计算路由激活向量)
+            diag_to_proto = {}
+            for node, label in zip(disease_list, diag_labels):
+                if node.startswith('D_') and label >= 0:
+                    diag_to_proto[node[2:]] = int(label)
+            print(f"  治疗演化社区: K={num_prototypes}")
+            for k, p in hkg_info['prototypes'].items():
+                print(f"    原型{k}: {p['num_diseases']} 诊断, 如 {p['diseases'][:3]}")
+            proto_info = {
+                'best_k': num_prototypes,
+                'method': 'metapath2vec',
+                'prototypes': hkg_info['prototypes'],
+                'diag_to_proto': diag_to_proto,
+            }
+            # 路线C路由用原型激活，专家类型轮询分配
+            expert_types = assign_expert_types(None, num_prototypes)
+            rule_prototypes = None
+
         model = TrajectoryCare(
             Tokenizers_visit_event=Tokenizers_visit_event,
             Tokenizers_monitor_event=Tokenizers_monitor_event,
@@ -167,16 +216,18 @@ def main(args):
             device=device,
             chapter_labels=chapter_labels,
             num_prototypes=num_prototypes,
-            num_chapters=num_chapters,
+            num_chapters=num_chapters_effective,
             embedding_dim=args.dim,
             dropout=args.dropout,
-            use_traj_router=args.use_traj_router,
+            use_traj_router=use_traj_router_eff,
             rule_prototypes=rule_prototypes,
             expert_types=expert_types,
             use_drug_cooccurrence=args.use_drug_cooccurrence,
             use_lab_encoder=args.use_lab_encoder,
             lab_tokenizer=Tokenizers_monitor_event.get('lab_inj_merged_list') if args.use_lab_encoder else None,
         )
+        # 路线C: 挂载诊断→原型映射，供 trainer 计算路由激活向量
+        model.diag_to_proto = diag_to_proto
     else:
         print("没有这个模型")
         return
@@ -379,6 +430,10 @@ if __name__ == '__main__':
                         help="Use drug co-occurrence propagation module")
     parser.add_argument("--use_lab_encoder", action="store_true",
                         help="Use lab/infusion feature encoder (lab_inj_merged_list)")
+    parser.add_argument("--use_hetero_kg", action="store_true",
+                        help="Use heterogeneous temporal KG metapath prototype discovery (路线C)")
+    parser.add_argument("--num_prototypes", type=int, default=8,
+                        help="Number of trajectory prototypes (used with --use_hetero_kg)")
     args = parser.parse_args()
 
     main(args)

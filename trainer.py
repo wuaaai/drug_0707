@@ -46,7 +46,45 @@ def _get_chapter_info_from_batch(data, model):
     数据集中的 conditions 是 CCS/CCSCM 编码，通过 map_ccs_to_expert 映射到 Expert ID。
     """
     if not hasattr(model, 'router'):
-        return None, None
+        return None, None, None, None
+
+    # === 路线C: 治疗演化社区原型激活路由（不用章节） ===
+    if hasattr(model, 'diag_to_proto') and model.diag_to_proto:
+        from models.trajectory_mining.hetero_kg import compute_patient_prototype_activation
+        import numpy as np
+
+        device = model.device
+        if type(data) == dict:
+            conditions_list = data.get('conditions', [])
+            B = len(data.get('visit_id', []))
+        else:
+            conditions_list = data[0].get('conditions', []) if len(data) > 0 else []
+            B = len(data)
+
+        # 排除当前就诊（用历史诊断计算激活）
+        historical_conds = []
+        num_visits_list = []
+        for b in range(B):
+            patient_conds = conditions_list[b] if b < len(conditions_list) else []
+            if (isinstance(patient_conds, list) and len(patient_conds) > 0
+                    and isinstance(patient_conds[0], list)):
+                hist = patient_conds[:-1]
+            else:
+                hist = patient_conds if isinstance(patient_conds, list) else []
+            historical_conds.append(hist if isinstance(hist, list) else [hist])
+            num_visits_list.append(len(hist))
+
+        # 从 diag_to_proto 构建诊断节点和标签
+        diag_to_proto = model.diag_to_proto
+        disease_nodes = ['D_' + c for c in diag_to_proto.keys()]
+        diag_labels = np.array([diag_to_proto[c] for c in diag_to_proto.keys()])
+
+        # 计算原型激活向量 (B, K) 作为路由信号
+        act = compute_patient_prototype_activation(
+            historical_conds, diag_labels, disease_nodes, model.num_prototypes)
+        activation = torch.tensor(act, dtype=torch.float32, device=device)
+        num_visits = torch.tensor(num_visits_list, dtype=torch.float32, device=device)
+        return activation, None, num_visits, None
 
     from models.expert_selectv2 import map_ccs_to_expert
     from preprocess.trajectory_data_builder import batch_compute_trajectory_features
