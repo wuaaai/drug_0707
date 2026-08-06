@@ -28,6 +28,19 @@ VERSIONS = {
                 dim=384, use_traj_router=True, num_prototypes=8, num_chapters=19, hetero=False),
     'routeC': dict(ckpt='logs/20260804/TrajectoryCare_mimic3_batchsize_32_epochs_50_路线C_完整/best_model_jaccard.ckpt',
                    dim=128, use_traj_router=False, num_prototypes=8, num_chapters=8, hetero=True),
+    # 消融变体 (30 epoch, 与完整消融对比)
+    '消融_full': dict(ckpt='logs/20260806/TrajectoryCare_mimic3_batchsize_32_epochs_30_消融_full/best_model_jaccard.ckpt',
+                      dim=128, use_traj_router=False, num_prototypes=8, num_chapters=8, hetero=True),
+    '消融_noLab': dict(ckpt='logs/20260806/TrajectoryCare_mimic3_batchsize_32_epochs_30_消融_noLab/best_model_jaccard.ckpt',
+                       dim=128, use_traj_router=False, num_prototypes=8, num_chapters=8, hetero=True),
+    '消融_noRoute': dict(ckpt='logs/20260806/TrajectoryCare_mimic3_batchsize_32_epochs_30_消融_noRoute/best_model_jaccard.ckpt',
+                         dim=128, use_traj_router=False, num_prototypes=8, num_chapters=8, hetero=True, no_route=True),
+    '消融_noJaccard': dict(ckpt='logs/20260806/TrajectoryCare_mimic3_batchsize_32_epochs_30_消融_noJaccard/best_model_jaccard.ckpt',
+                           dim=128, use_traj_router=False, num_prototypes=8, num_chapters=8, hetero=True),
+    '消融_noCooccur': dict(ckpt='logs/20260806/TrajectoryCare_mimic3_batchsize_32_epochs_30_消融_noCooccur/best_model_jaccard.ckpt',
+                           dim=128, use_traj_router=False, num_prototypes=8, num_chapters=8, hetero=True),
+    '消融_noContrast': dict(ckpt='logs/20260806/TrajectoryCare_mimic3_batchsize_32_epochs_30_消融_noContrast/best_model_jaccard.ckpt',
+                            dim=128, use_traj_router=False, num_prototypes=8, num_chapters=8, hetero=True),
 }
 
 
@@ -77,7 +90,7 @@ def build_model(cfg, device):
     return model
 
 
-def evaluate(model, loader, device):
+def evaluate(model, loader, device, no_route=False):
     from trainer import _get_chapter_info_from_batch
     from pyhealth.metrics import binary_metrics_fn
 
@@ -88,8 +101,12 @@ def evaluate(model, loader, device):
                 label = prepare_labels(data['drugs'], label_tokenizer).to(device)
             else:
                 label = prepare_labels(data[0]['drugs'], label_tokenizer).to(device)
-            cd, tf, nv, vs = _get_chapter_info_from_batch(data, model)
-            logits, _, _ = model(data, cd, nv, tf, visit_chapter_seqs=vs)
+            if no_route:
+                # 消融noRoute: 均匀路由（与训练一致）
+                logits, _, _ = model(data)
+            else:
+                cd, tf, nv, vs = _get_chapter_info_from_batch(data, model)
+                logits, _, _ = model(data, cd, nv, tf, visit_chapter_seqs=vs)
             y_t_all.append(label.cpu().numpy())
             y_p_all.append(torch.sigmoid(logits).cpu().numpy())
 
@@ -136,7 +153,8 @@ def main():
             model.load_state_dict(
                 torch.load(cfg['ckpt'], map_location=device), strict=False)
             model.eval()
-            sw_jac, sw_f1, micro, n = evaluate(model, test_loader, device)
+            sw_jac, sw_f1, micro, n = evaluate(model, test_loader, device,
+                                               no_route=cfg.get('no_route', False))
             results[name] = (sw_jac, sw_f1, micro, n)
             print(f"{name:<10}{sw_jac:.4f}          {sw_f1:.4f}       {micro:.4f}       {n}")
         except Exception as e:
