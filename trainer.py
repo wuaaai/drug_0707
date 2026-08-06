@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import torch
 import torch.nn.functional as F
 import traceback
@@ -183,8 +184,10 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
             # with autograd.detect_anomaly():
             try:
                 # TrajectoryCare 需要章节分布和轨迹特征信息
-                CONTRASTIVE_W = 0.05  # 轨迹对比损失权重
-                if hasattr(model, 'router'):
+                # 消融用: 通过环境变量控制辅助损失权重 (0=关闭该损失)
+                CONTRASTIVE_W = float(os.environ.get('CONTRASTIVE_W', 0.05))  # 轨迹对比+解耦损失权重
+                # 消融用: ROUTING=0 时用均匀路由（去掉轨迹路由机制）
+                if hasattr(model, 'router') and os.environ.get('ROUTING', '1') == '1':
                     chapter_dist, traj_features, num_visits, visit_seqs = _get_chapter_info_from_batch(data, model)
                     model_output = model(data, chapter_dist, num_visits, traj_features,
                                          visit_chapter_seqs=visit_seqs,
@@ -224,7 +227,7 @@ def training(data_loader, model, label_tokenizer, optimizer, label_name, log_out
             # === 加入 Jaccard 近似损失（直接优化目标指标） ===
             # Jaccard = TP / (TP + FP + FN)
             # 使用可微的软 Jaccard: p=σ(logits), J = Σ(p*y) / Σ(p + y - p*y)
-            JACCARD_W = 0.3  # Jaccard 损失权重
+            JACCARD_W = float(os.environ.get('JACCARD_W', 0.3))  # Jaccard 损失权重
             if JACCARD_W > 0:
                 prob = torch.sigmoid(out)
                 intersection = (prob * label).sum(dim=1)
@@ -386,7 +389,8 @@ def evaluating(data_loader, model, label_tokenizer, label_name, device):
                     label = prepare_labels(data[0][label_name], label_tokenizer).to(device)
 
                 # TrajectoryCare 评估时也传入路由信息（与训练一致）
-                if hasattr(model, 'router'):
+                # 消融用: ROUTING=0 时用均匀路由
+                if hasattr(model, 'router') and os.environ.get('ROUTING', '1') == '1':
                     chapter_dist, traj_features, num_visits, visit_seqs = _get_chapter_info_from_batch(data, model)
                     model_output = model(data, chapter_dist, num_visits, traj_features,
                                          visit_chapter_seqs=visit_seqs)
