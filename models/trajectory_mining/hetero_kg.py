@@ -33,14 +33,16 @@ def sample_to_visits(sample: Dict) -> List[Dict]:
     """把单个样本转成 visit 级异构事件序列。
 
     Args:
-        sample: pyhealth 样本，含 conditions/procedures/drugs_hist
+        sample: pyhealth 样本，含 conditions/procedures/drugs_hist/lab
 
     Returns:
-        visits: [{'D': [...], 'P': [...], 'M': [...]}, ...]
+        visits: [{'D': [...], 'P': [...], 'M': [...], 'L': [...]}, ...]
+                 L = lab/检验项目（从 lab_inj_merged_list 展平去重）
     """
     conditions = sample.get('conditions', [])
     procedures = sample.get('procedures', [])
     drugs_hist = sample.get('drugs_hist', [])
+    lab = sample.get('lab_inj_merged_list', [])
 
     def _to_codes(x):
         if not isinstance(x, list):
@@ -53,15 +55,47 @@ def sample_to_visits(sample: Dict) -> List[Dict]:
     procs = _to_codes(procedures)
     drugs = _to_codes(drugs_hist)
 
-    n_visits = max(len(conds), len(procs), len(drugs))
+    # lab 结构: (visits, monitors, items)，展平 monitors 去重
+    lab_visits = []
+    if isinstance(lab, list):
+        for visit in lab:
+            items = set()
+            if isinstance(visit, list):
+                for monitor in visit:
+                    if isinstance(monitor, list):
+                        for code in monitor:
+                            s = str(code)
+                            if s != 'nan' and s.strip():
+                                items.add(s)
+            lab_visits.append(sorted(items))
+
+    n_visits = max(len(conds), len(procs), len(drugs), len(lab_visits))
     visits = []
     for t in range(n_visits):
         visits.append({
             'D': conds[t] if t < len(conds) else [],
             'P': procs[t] if t < len(procs) else [],
             'M': drugs[t] if t < len(drugs) else [],
+            'L': lab_visits[t] if t < len(lab_visits) else [],
         })
     return visits
+
+
+# ICU 通用支持性用药（ATC 第三级）——与具体疾病无关，需过滤
+# 这些是所有 ICU 病人的常规护理药，会掩盖疾病特异性治疗信号
+ICU_COMMON_MED = {
+    'B05X',  # 静脉补液/血液代用品
+    'B01A',  # 抗血栓
+    'N02B',  # 镇痛
+    'A02B',  # 抗酸/抗溃疡
+    'A06A',  # 泻药/通便
+    'B05A',  # 血液和相关制品
+    'B05B',  # 静脉溶液
+    'A03F',  # 促胃肠动力
+    'A04A',  # 止吐
+    'N05C',  # 催眠镇静
+    'N05B',  # 抗焦虑
+}
 
 
 def build_hetero_edges(all_visits: List[List[Dict]]) -> Dict[Tuple[str, str, str], int]:
@@ -83,7 +117,11 @@ def build_hetero_edges(all_visits: List[List[Dict]]) -> Dict[Tuple[str, str, str
     for patient in all_visits:
         n = len(patient)
         for t in range(n):
-            D_t, P_t, M_t = patient[t]['D'], patient[t]['P'], patient[t]['M']
+            D_t = patient[t]['D']
+            P_t = patient[t]['P']
+            # 过滤 ICU 通用支持性用药（保留疾病特异性用药）
+            M_t = [m for m in patient[t]['M'] if m not in ICU_COMMON_MED]
+            L_t = patient[t].get('L', [])
 
             # 同次共现边
             for d in D_t:
@@ -93,6 +131,9 @@ def build_hetero_edges(all_visits: List[List[Dict]]) -> Dict[Tuple[str, str, str
                 for p in P_t:
                     edges[('D_' + d, 'P_' + p, 'co_dp')] += 1
                     edges[('P_' + p, 'D_' + d, 'co_dp')] += 1
+                for l in L_t:
+                    edges[('D_' + d, 'L_' + l, 'co_dl')] += 1
+                    edges[('L_' + l, 'D_' + d, 'co_dl')] += 1
 
             # 跨就诊演化边: 前次所有事件 → 后次诊断
             if t + 1 < n:
@@ -104,6 +145,8 @@ def build_hetero_edges(all_visits: List[List[Dict]]) -> Dict[Tuple[str, str, str
                         edges[('M_' + m, 'D_' + dn, 'evo')] += 1
                     for p in P_t:
                         edges[('P_' + p, 'D_' + dn, 'evo')] += 1
+                    for l in L_t:
+                        edges[('L_' + l, 'D_' + dn, 'evo')] += 1
 
     return dict(edges)
 
@@ -552,8 +595,10 @@ def discover_prototypes_metapath2vec(
     from sklearn.metrics import silhouette_score
 
     if path_schema is None:
-        # 医学元路径：诊断→用药→诊断→手术→诊断（治疗干预演化链）
-        path_schema = ['D', 'M', 'D', 'P', 'D']
+        # 医学元路径（精化版）：突出手术(P)干预 + 加入检验(L)监测
+        # P 出现更频繁 → 手术路径采样更多（手术比用药更有疾病特异性）
+        # L 加入检验信号（如肌钙蛋白↑ 强化疾病特异性）
+        path_schema = ['D', 'P', 'D', 'M', 'D', 'P', 'D', 'L', 'D']
 
     # 只保留与诊断节点相关的边（减小子图规模）
     disease_set = set(disease_nodes)
