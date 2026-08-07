@@ -507,6 +507,7 @@ def learn_skipgram_embeddings(
     """
     import random as pyrandom
     pyrandom.seed(42)
+    torch.manual_seed(42)  # 关键: 固定 Embedding 初始化, 保证原型可复现
 
     node2idx = {n: i for i, n in enumerate(node_list)}
     N = len(node_list)
